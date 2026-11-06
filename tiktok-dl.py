@@ -41,6 +41,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urljoin
@@ -422,6 +423,38 @@ def uniq(seq) -> list:
 # TikTok web client
 # --------------------------------------------------------------------------- #
 
+# Page reads answered with HTTP 429 (or 403) back off: wait as long as Retry-After says when
+# TikTok sends it, otherwise BACKOFF_BASE seconds, doubled on each retry (5, 10, 20, 40 s).
+# Both are capped at BACKOFF_MAX so a huge Retry-After can't stall the run.
+RATE_LIMIT_CODES = (403, 429)
+BACKOFF_BASE = 5.0
+BACKOFF_MAX = 120.0
+
+
+def retry_after_seconds(value: Optional[str], now: Optional[datetime] = None) -> Optional[float]:
+    """Seconds to wait from a Retry-After header (a number of seconds or an HTTP date), or None."""
+    if not value:
+        return None
+    value = value.strip()
+    try:
+        return max(0.0, float(value))
+    except ValueError:
+        pass
+    try:
+        when = parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return max(0.0, (when - (now or datetime.now(timezone.utc))).total_seconds())
+
+
+def backoff_delay(attempt: int, retry_after: Optional[float] = None) -> float:
+    """Seconds to pause page reads after the attempt-th (0-based) rate-limited response."""
+    delay = retry_after if retry_after is not None else BACKOFF_BASE * 2 ** attempt
+    return min(BACKOFF_MAX, delay)
+
+
 class TikTok:
     def __init__(self, session_id: Optional[str] = None, wait: float = 0.3, proxy: Optional[str] = None):
         self.s = requests.Session()
@@ -440,13 +473,34 @@ class TikTok:
         self.wait = wait
         self._lock = threading.Lock()
         self._last = 0.0
+        # Backoff after HTTP 429/403, shared by all metadata threads.
+        self._backoff_lock = threading.Lock()
+        self._pause_until = 0.0
+        self._warned = False
 
     def _throttle(self) -> None:
         with self._lock:
-            delay = self._last + self.wait - time.monotonic()
-            if delay > 0:
+            # Keep the --wait gap between requests and honour any backoff pause. Check again
+            # after sleeping, as another thread may have extended the pause meanwhile.
+            while True:
+                delay = max(self._last + self.wait, self._pause_until) - time.monotonic()
+                if delay <= 0:
+                    break
                 time.sleep(delay)
             self._last = time.monotonic()
+
+    def _back_off(self, r: requests.Response, attempt: int) -> None:
+        """Pause every page read after a rate-limited response; warn the user the first time."""
+        delay = backoff_delay(attempt, retry_after_seconds(r.headers.get("Retry-After")))
+        with self._backoff_lock:
+            self._pause_until = max(self._pause_until, time.monotonic() + delay)
+            first, self._warned = not self._warned, True
+        if first:
+            code = r.status_code
+            log(warn(t(f"TikTok is limiting requests (HTTP {code}). Slowing down and retrying; "
+                       "if it keeps happening, use a larger --wait or fewer --workers.",
+                       f"TikTok đang giới hạn request (HTTP {code}). Tool sẽ chậm lại rồi thử lại; "
+                       "nếu vẫn bị, hãy tăng --wait hoặc giảm --workers.")))
 
     def _scope(self, url: str, scope: str) -> dict:
         last = t("no response", "không có phản hồi")
@@ -455,6 +509,11 @@ class TikTok:
             self._throttle()
             try:
                 r = self.s.get(url, timeout=25)
+                if r.status_code in RATE_LIMIT_CODES:
+                    self._back_off(r, attempt)
+                    last = t(f"HTTP {r.status_code}, TikTok is limiting requests",
+                             f"HTTP {r.status_code}, TikTok đang giới hạn request")
+                    continue  # the backoff pause replaces the fixed retry delay below
                 m = REHYDRATION_RE.search(r.text)
                 if m:
                     data = json.loads(m.group(1)).get("__DEFAULT_SCOPE__", {}).get(scope)
@@ -1408,14 +1467,14 @@ def main() -> None:
     p.add_argument("-n", "--limit", type=int, help=t("only the N newest posts", "chỉ lấy N bài mới nhất"))
     p.add_argument("-j", "--jobs", type=int, default=16,
                    help=t("files aria2c downloads at once (default: 16)", "số file aria2c tải cùng lúc (mặc định: 16)"))
-    p.add_argument("-x", "--connections", type=int, default=16,
-                   help=t("aria2c connections per file, max 16 (default: 16)",
-                          "số kết nối aria2c cho mỗi file, tối đa 16 (mặc định: 16)"))
+    p.add_argument("-x", "--connections", type=int, default=4,
+                   help=t("aria2c connections per file, max 16 (default: 4)",
+                          "số kết nối aria2c cho mỗi file, tối đa 16 (mặc định: 4)"))
     p.add_argument("-w", "--workers", type=int, default=8,
                    help=t("threads reading metadata (default: 8)", "số luồng đọc metadata (mặc định: 8)"))
-    p.add_argument("--wait", type=float, default=0.1,
-                   help=t("seconds between TikTok page requests (default: 0.1)",
-                          "giãn cách giữa các request trang TikTok, giây (mặc định: 0.1)"))
+    p.add_argument("--wait", type=float, default=0.3,
+                   help=t("seconds between TikTok page requests (default: 0.3)",
+                          "giãn cách giữa các request trang TikTok, giây (mặc định: 0.3)"))
     p.add_argument("--batch", type=int, default=50,
                    help=t("posts per read-download-mux batch (default: 50)", "số bài mỗi lô đọc-tải-mux (mặc định: 50)"))
     p.add_argument("--mux-jobs", type=int, default=max(1, min(4, (os.cpu_count() or 2) // 2)),
