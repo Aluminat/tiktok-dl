@@ -262,3 +262,81 @@ def test_wait_result_can_be_interrupted(tdl):
     finally:
         gate.set()
         pool.shutdown(wait=True)
+
+
+def test_download_aria2_can_be_interrupted(tdl, monkeypatch, tmp_path):
+    # A blocking Popen.wait() / communicate() cannot be interrupted by Ctrl+C on Windows, so STOP
+    # would stay clear (and mux jobs keep running) until aria2c exits on its own.
+    procs = []
+
+    class FakePopen:
+        def __init__(self, cmd, **kwargs):
+            self.terminated = False
+            self.input = None
+            procs.append(self)
+
+        def poll(self):
+            return 1 if self.terminated else None
+
+        def wait(self, timeout=None):
+            if timeout is None:
+                pytest.fail("a blocking wait() cannot be interrupted by Ctrl+C on Windows")
+            raise subprocess.TimeoutExpired("aria2c", timeout)
+
+        def communicate(self, input=None, timeout=None):
+            if input is not None:
+                self.input = input
+            if timeout is None:
+                pytest.fail("a blocking communicate() cannot be interrupted by Ctrl+C on Windows")
+            time.sleep(timeout)
+            raise subprocess.TimeoutExpired("aria2c", timeout)
+
+        def terminate(self):
+            self.terminated = True
+
+    monkeypatch.setattr(subprocess, "Popen", FakePopen)
+    tasks = [(["https://example.invalid/1.mp4"], tmp_path / "1" / "video.mp4", 0)]
+    threading.Timer(0.2, _thread.interrupt_main).start()
+    t0 = time.monotonic()
+    with pytest.raises(KeyboardInterrupt):
+        tdl.download_aria2("aria2c", tasks, "", 1, 1, 0)
+    assert time.monotonic() - t0 < 2
+    assert tdl.STOP.is_set()
+    assert procs[0].terminated
+    assert procs[0].input.decode("utf-8").startswith("https://example.invalid/1.mp4\n")
+
+
+def test_mux_video_skips_fallbacks_when_ffmpeg_exits_before_stop_is_set(tdl, monkeypatch, tmp_path):
+    runs = []
+
+    def fake_run(cmd, **kwargs):
+        runs.append(cmd)
+        # ffmpeg got Ctrl+C and exited; the main thread sets STOP a moment later.
+        threading.Timer(0.2, tdl.STOP.set).start()
+        return SimpleNamespace(returncode=255, stderr=b"")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    cover = tmp_path / "cover.img"
+    cover.write_bytes(b"x" * 10)
+    post = SimpleNamespace(item={"id": "1", "author": {"uniqueId": "u"}}, subs=[], cover=cover,
+                           video=tmp_path / "video.mp4")
+    with pytest.raises(tdl.ScrapeError):
+        tdl.mux_video("ffmpeg", post, tmp_path / "out.mp4")
+    assert len(runs) == 1   # no "cover skipped" retry that could be recorded as done
+
+
+def test_mux_video_still_falls_back_on_a_real_ffmpeg_error(tdl, monkeypatch, tmp_path):
+    codes = [1, 0]
+
+    def fake_run(cmd, **kwargs):
+        return SimpleNamespace(returncode=codes.pop(0), stderr=b"bad cover")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    cover = tmp_path / "cover.img"
+    cover.write_bytes(b"x" * 10)
+    post = SimpleNamespace(item={"id": "1", "author": {"uniqueId": "u"}}, subs=[], cover=cover,
+                           video=tmp_path / "video.mp4")
+    t0 = time.monotonic()
+    assert tdl.mux_video("ffmpeg", post, tmp_path / "out.mp4") == tdl.t("cover skipped", "bỏ ảnh bìa")
+    assert time.monotonic() - t0 < 0.5   # no wait for STOP on an ordinary error
+    assert codes == []

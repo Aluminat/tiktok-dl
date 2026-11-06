@@ -210,7 +210,7 @@ class FakeAria2:
         assert "--input-file=-" in cmd
         return SimpleNamespace(communicate=self.run, terminate=lambda: None)
 
-    def run(self, data: bytes):
+    def run(self, data: bytes, timeout=None):
         downloads = []  # [url, {option: value}] per download, in the aria2c input-file format
         for line in data.decode("utf-8").splitlines():
             if line.startswith(" "):

@@ -842,8 +842,18 @@ def download_aria2(aria2: str, tasks, cookie: str, jobs: int, conns: int, attemp
     ]
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
-        proc.communicate(("\n".join(lines) + "\n").encode("utf-8"))
+        # Wait in short steps instead of one blocking communicate(): on Windows Ctrl+C cannot
+        # interrupt a blocking wait, so STOP would only be set once aria2c exits, while ffmpeg jobs
+        # keep running and starting meanwhile.
+        data = ("\n".join(lines) + "\n").encode("utf-8")
+        while True:
+            try:
+                proc.communicate(data, timeout=0.1)
+                break
+            except subprocess.TimeoutExpired:
+                data = None  # already handed over: later calls only wait for aria2c to exit
     except KeyboardInterrupt:
+        STOP.set()
         proc.terminate()
         raise
     truncated = {dest for dest, expected in queued if is_truncated(dest, expected)}
@@ -909,7 +919,11 @@ def run_ffmpeg(cmd: list[str]) -> tuple[bool, str]:
     if STOP.is_set():
         raise ScrapeError(t("stopped", "đã dừng"))
     p = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-    if p.returncode and STOP.is_set():
+    # ffmpeg can exit from Ctrl+C a moment before the main thread sets STOP. For an exit code that
+    # looks like a signal (255 from ffmpeg's own handler, 0xC000013A on Windows, <0 on POSIX),
+    # give STOP a second to be set before treating it as a real error.
+    by_signal = p.returncode < 0 or p.returncode in (255, 0xC000013A)
+    if p.returncode and STOP.wait(1 if by_signal else 0):
         raise ScrapeError(t("stopped", "đã dừng"))
     return p.returncode == 0, p.stderr.decode("utf-8", "replace").strip()[-400:]
 
