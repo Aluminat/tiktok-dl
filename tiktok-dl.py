@@ -1197,9 +1197,9 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
     n = len(pending)
     if not n:
         log(green(t("  ✓ Nothing left to download.", "  ✓ Không còn bài nào cần tải.")))
-        progress.close()
         write_csv(out_dir)
         write_failed_file(progress, out_dir, username)
+        progress.close()
         return 0
     log(gray(t(f"  Processing {n} post{'s' if n != 1 else ''} → ", f"  Bắt đầu xử lý {n} bài → "))
         + blue(str(out_dir)) + "\n")
@@ -1269,6 +1269,7 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
     meta_pool = ThreadPoolExecutor(1)
     mux_pool = ThreadPoolExecutor(opts.mux_jobs)
     mux_futures = []
+    completed = False
     with bar:
         try:
             upcoming = meta_pool.submit(fetch_batch, batches[0])
@@ -1338,6 +1339,7 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
                 mux_futures += [mux_pool.submit(finish, post) for post in posts]
             for fut in mux_futures:
                 wait_result(fut)
+            completed = True
         except KeyboardInterrupt:
             STOP.set()
             raise
@@ -1345,7 +1347,8 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
             meta_pool.shutdown(wait=False, cancel_futures=True)
             # On Ctrl+C, drop queued mux jobs; running ones were stopped by Ctrl+C too and end quickly.
             mux_pool.shutdown(wait=True, cancel_futures=STOP.is_set())
-            progress.close()
+            if not completed:
+                progress.close()   # the run is ending with an error: nothing below runs
 
     ok, failed, total_bytes = tally["ok"], tally["failed"], tally["bytes"]
     rows = write_csv(out_dir)
@@ -1353,6 +1356,7 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
         shutil.rmtree(work, ignore_errors=True)
 
     all_failed = write_failed_file(progress, out_dir, username)
+    progress.close()
 
     secs = max(1.0, time.monotonic() - started)
     dot = gray(" · ")

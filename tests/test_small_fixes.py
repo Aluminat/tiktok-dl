@@ -18,7 +18,7 @@ SCRIPT = Path(__file__).resolve().parent.parent / "tiktok-dl.py"
 
 def test_page_read_does_not_sleep_after_last_attempt(tdl, monkeypatch):
     sleeps = []
-    monkeypatch.setattr(tdl.time, "sleep", sleeps.append)
+    monkeypatch.setattr(tdl.STOP, "wait", sleeps.append)   # the wait between attempts; Ctrl+C ends it
     tt = tdl.TikTok(wait=0)
     gets = []
 
@@ -35,7 +35,7 @@ def test_page_read_does_not_sleep_after_last_attempt(tdl, monkeypatch):
 
 def test_page_read_success_after_retry(tdl, monkeypatch):
     sleeps = []
-    monkeypatch.setattr(tdl.time, "sleep", sleeps.append)
+    monkeypatch.setattr(tdl.STOP, "wait", sleeps.append)   # the wait between attempts; Ctrl+C ends it
     tt = tdl.TikTok(wait=0)
     page = ('<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">'
             '{"__DEFAULT_SCOPE__": {"webapp.video-detail": {"statusCode": 0, '
@@ -75,7 +75,7 @@ def make_opts(tmp_path, **overrides):
     opts = dict(
         output=str(tmp_path), session_id=None, wait=0, proxy=None, limit=None, metadata_only=False,
         batch=50, workers=1, mux_jobs=1, jobs=1, connections=1, keep_parts=False, cover=False,
-        subs="none", slideshow=True, keep_images=False, slide_seconds=3.0,
+        subs="none", slideshow=True, keep_images=False, slide_seconds=3.0, retry_all=False,
     )
     opts.update(overrides)
     return SimpleNamespace(**opts)
