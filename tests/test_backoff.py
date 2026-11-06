@@ -60,10 +60,16 @@ def client(tdl, responses, wait=0.0):
     return tt
 
 
+def gaps(tt):
+    """Seconds between consecutive page requests."""
+    return [round(b - a, 3) for a, b in zip(tt.requested_at, tt.requested_at[1:])]
+
+
 def test_backoff_schedule_doubles_until_success(tdl, clock, logged):
     tt = client(tdl, [FakeResponse(429), FakeResponse(429), FakeResponse(429), FakeResponse(200, PAGE)])
     assert tt.whoami() == {"uniqueId": "me"}
-    assert clock.sleeps == [5.0, 10.0, 20.0]
+    assert gaps(tt) == [5.0, 10.0, 20.0]
+    assert round(sum(clock.sleeps), 3) == 35.0
     start = tt.requested_at[0]
     assert [round(t - start, 3) for t in tt.requested_at] == [0.0, 5.0, 15.0, 35.0]
 
@@ -71,33 +77,37 @@ def test_backoff_schedule_doubles_until_success(tdl, clock, logged):
 def test_retry_after_seconds_is_honoured(tdl, clock, logged):
     tt = client(tdl, [FakeResponse(429, headers={"Retry-After": "42"}), FakeResponse(200, PAGE)])
     assert tt.whoami() == {"uniqueId": "me"}
-    assert clock.sleeps == [42.0]
+    assert gaps(tt) == [42.0]
 
 
 def test_retry_after_is_capped(tdl, clock, logged):
     tt = client(tdl, [FakeResponse(429, headers={"Retry-After": "86400"}), FakeResponse(200, PAGE)])
     tt.whoami()
-    assert clock.sleeps == [tdl.BACKOFF_MAX]
+    assert gaps(tt) == [tdl.BACKOFF_MAX]
 
 
 def test_403_backs_off_too(tdl, clock, logged):
     tt = client(tdl, [FakeResponse(403), FakeResponse(200, PAGE)])
     assert tt.whoami() == {"uniqueId": "me"}
-    assert clock.sleeps == [5.0]
+    assert gaps(tt) == [5.0]
 
 
 def test_gives_up_with_rate_limit_reason_and_warns_once(tdl, clock, logged):
     tt = client(tdl, [FakeResponse(429)] * 4)
     with pytest.raises(tdl.ScrapeError, match="HTTP 429"):
         tt.whoami()
-    assert clock.sleeps == [5.0, 10.0, 20.0]
+    assert gaps(tt) == [5.0, 10.0, 20.0]
     assert len(logged) == 1
     assert "429" in logged[0] and "--wait" in logged[0]
+    # The last attempt is not retried, so it leaves no pause behind for the next read.
+    assert clock.now == tt.requested_at[-1]
 
     # Later rate-limited requests on the same client back off again but do not warn again.
     tt2_responses = [FakeResponse(429), FakeResponse(200, PAGE)]
     tt.s.get = lambda url, timeout=None: tt2_responses.pop(0)
+    clock.sleeps.clear()
     assert tt.whoami() == {"uniqueId": "me"}
+    assert round(sum(clock.sleeps), 3) == 5.0
     assert len(logged) == 1
 
 
@@ -107,7 +117,57 @@ def test_pause_is_shared_by_later_requests(tdl, clock, logged):
     tt._back_off(FakeResponse(429, headers={"Retry-After": "30"}), 0)
     clock.sleeps.clear()
     tt._throttle()
-    assert clock.sleeps == [30.0]
+    assert round(sum(clock.sleeps), 3) == 30.0
+
+
+def test_run_stops_after_too_many_rate_limited_answers_in_a_row(tdl, clock, logged):
+    """A blocked IP must fail fast, not retry every post for hours."""
+    tt = client(tdl, [FakeResponse(429)] * tdl.RATE_LIMIT_STREAK)
+    with pytest.raises(tdl.ScrapeError):   # first post: 4 attempts, then a normal failure
+        tt.whoami()
+    with pytest.raises(tdl.RateLimited):   # the streak reaches the limit on the next post
+        tt.whoami()
+    assert len(tt.requested_at) == tdl.RATE_LIMIT_STREAK
+
+    # Every later read gives up at once: no request, no sleep.
+    clock.sleeps.clear()
+    with pytest.raises(tdl.RateLimited):
+        tt.whoami()
+    assert len(tt.requested_at) == tdl.RATE_LIMIT_STREAK
+    assert clock.sleeps == []
+
+
+def test_any_other_answer_resets_the_streak(tdl, clock, logged):
+    n = tdl.RATE_LIMIT_STREAK - 1
+    tt = client(tdl, [FakeResponse(429)] * 3 + [FakeResponse(200, PAGE)] + [FakeResponse(429)] * n
+                + [FakeResponse(200, PAGE)])
+    tt._streak = n - 3   # earlier rate-limited answers from other posts
+    assert tt.whoami() == {"uniqueId": "me"}
+    with pytest.raises(tdl.ScrapeError) as e:   # 4 x 429: fails this post only
+        tt.whoami()
+    assert not isinstance(e.value, tdl.RateLimited)
+    assert tt.whoami() == {"uniqueId": "me"}   # n-4 x 429, then a success
+    assert tt._streak == 0
+
+
+def test_stop_makes_waiting_reads_give_up(tdl, clock, logged):
+    tt = client(tdl, [])
+    tt._pause_until = clock.now + 100
+    tt.stop()
+    with pytest.raises(tdl.RateLimited):
+        tt._throttle()
+    assert clock.sleeps == []
+
+
+def test_save_profile_does_not_swallow_rate_limited(tdl, tmp_path, monkeypatch):
+    tt = tdl.TikTok()
+
+    def user(username):
+        raise tdl.RateLimited("blocked")
+
+    monkeypatch.setattr(tt, "user", user)
+    with pytest.raises(tdl.RateLimited):
+        tdl.save_profile(tt, "someone", tmp_path)
 
 
 def test_normal_requests_keep_the_wait_gap(tdl, clock, logged):

@@ -95,8 +95,10 @@ Mặc định được để thấp để TikTok ít chặn hay đánh dấu tà
 Bạn có thể tăng lên, ví dụ `-x 8 --wait 0.1`, nhưng tải càng nhanh thì càng dễ bị chặn.
 
 Nếu TikTok trả HTTP 429 (quá nhiều request) hoặc 403 khi đọc trang, tool hiện cảnh báo một lần,
-rồi tạm dừng và thử lại, mỗi lần chờ lâu hơn (5, 10, 20, 40 giây), hoặc chờ đúng thời gian TikTok
-yêu cầu trong header `Retry-After` (tối đa 2 phút). Nếu vẫn bị, hãy tăng `--wait` hoặc giảm `--workers`.
+rồi tạm dừng và thử lại, mỗi lần chờ lâu hơn (5, 10, 20 giây), hoặc chờ đúng thời gian TikTok
+yêu cầu trong header `Retry-After` (tối đa 2 phút). Nếu bị liên tiếp 8 lần, tool sẽ dừng hẳn thay vì
+thử lại từng bài (có thể TikTok đang tạm chặn IP của bạn). Hãy đợi một lúc rồi chạy lại đúng lệnh cũ
+để tải tiếp; tăng `--wait` hoặc giảm `--workers` cũng giúp ích.
 
 ## Log bài không tải được
 

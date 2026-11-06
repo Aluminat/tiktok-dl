@@ -339,6 +339,10 @@ class ScrapeError(Exception):
         self.code = code
 
 
+class RateLimited(ScrapeError):
+    """TikTok answered too many page reads in a row with HTTP 429/403: stop the whole run."""
+
+
 def find_tool(name: str) -> Optional[str]:
     """Prefer an executable next to tiktok-dl.py (e.g. aria2c.exe, ffmpeg.exe), then PATH."""
     for cand in (SCRIPT_DIR / f"{name}.exe", SCRIPT_DIR / name):
@@ -424,11 +428,14 @@ def uniq(seq) -> list:
 # --------------------------------------------------------------------------- #
 
 # Page reads answered with HTTP 429 (or 403) back off: wait as long as Retry-After says when
-# TikTok sends it, otherwise BACKOFF_BASE seconds, doubled on each retry (5, 10, 20, 40 s).
-# Both are capped at BACKOFF_MAX so a huge Retry-After can't stall the run.
+# TikTok sends it, otherwise BACKOFF_BASE seconds, doubled on each retry (5, 10, 20 s).
+# Both are capped at BACKOFF_MAX, which limits one pause, not the run. The run stops after
+# RATE_LIMIT_STREAK rate-limited answers in a row (any thread, no other answer between), so a
+# blocked IP fails fast instead of retrying every post for hours.
 RATE_LIMIT_CODES = (403, 429)
 BACKOFF_BASE = 5.0
 BACKOFF_MAX = 120.0
+RATE_LIMIT_STREAK = 8
 
 
 def retry_after_seconds(value: Optional[str], now: Optional[datetime] = None) -> Optional[float]:
@@ -477,17 +484,40 @@ class TikTok:
         self._backoff_lock = threading.Lock()
         self._pause_until = 0.0
         self._warned = False
+        self._streak = 0          # rate-limited answers in a row
+        self._stopped = False     # set when the streak is too long or the run is stopping
+
+    def stop(self) -> None:
+        """Make queued and waiting page reads give up at once (run aborted or interrupted)."""
+        self._stopped = True
+
+    def _check_stopped(self) -> None:
+        if self._stopped:
+            raise RateLimited(t("stopped, TikTok keeps limiting requests",
+                                "đã dừng, TikTok liên tục giới hạn request"))
 
     def _throttle(self) -> None:
         with self._lock:
             # Keep the --wait gap between requests and honour any backoff pause. Check again
-            # after sleeping, as another thread may have extended the pause meanwhile.
+            # after sleeping, as another thread may have extended the pause meanwhile. Sleep in
+            # short slices so a stopped run does not sit out a long pause.
             while True:
+                self._check_stopped()
                 delay = max(self._last + self.wait, self._pause_until) - time.monotonic()
                 if delay <= 0:
                     break
-                time.sleep(delay)
+                time.sleep(min(delay, 1.0))
             self._last = time.monotonic()
+
+    def _rate_limited(self, r: requests.Response, attempt: int, retry: bool) -> None:
+        """Count a 429/403 answer: stop the run after too many in a row, else pause if retrying."""
+        with self._backoff_lock:
+            self._streak += 1
+            if self._streak >= RATE_LIMIT_STREAK:
+                self._stopped = True
+        self._check_stopped()
+        if retry:
+            self._back_off(r, attempt)
 
     def _back_off(self, r: requests.Response, attempt: int) -> None:
         """Pause every page read after a rate-limited response; warn the user the first time."""
@@ -510,10 +540,13 @@ class TikTok:
             try:
                 r = self.s.get(url, timeout=25)
                 if r.status_code in RATE_LIMIT_CODES:
-                    self._back_off(r, attempt)
+                    # No pause after the last attempt: nothing retries it.
+                    self._rate_limited(r, attempt, retry=attempt + 1 < attempts)
                     last = t(f"HTTP {r.status_code}, TikTok is limiting requests",
                              f"HTTP {r.status_code}, TikTok đang giới hạn request")
                     continue  # the backoff pause replaces the fixed retry delay below
+                with self._backoff_lock:
+                    self._streak = 0
                 m = REHYDRATION_RE.search(r.text)
                 if m:
                     data = json.loads(m.group(1)).get("__DEFAULT_SCOPE__", {}).get(scope)
@@ -1144,6 +1177,8 @@ def finalize(post: Post, out_dir: Path, ffmpeg: Optional[str], opts) -> tuple[st
 def save_profile(tt: TikTok, username: str, out_dir: Path) -> Optional[dict]:
     try:
         info = tt.user(username)
+    except RateLimited:
+        raise
     except ScrapeError as e:
         if e.code in FATAL_PROFILE_CODES:
             raise ScrapeError(f"@{username}: {e}", e.code)
@@ -1290,6 +1325,8 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
             return entry, None, t("stopped", "đã dừng")
         try:
             return entry, tt.item(username, str(entry["id"])), None
+        except RateLimited:
+            raise
         except ScrapeError as e:
             return entry, None, e
         except Exception as e:   # an odd page must fail only this post, not the whole batch
@@ -1403,6 +1440,7 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
             STOP.set()
             raise
         finally:
+            tt.stop()  # queued page reads of an aborted batch give up instead of running on
             meta_pool.shutdown(wait=False, cancel_futures=True)
             # On Ctrl+C, drop queued mux jobs; running ones were stopped by Ctrl+C too and end quickly.
             mux_pool.shutdown(wait=True, cancel_futures=STOP.is_set())
@@ -1568,9 +1606,19 @@ def main() -> None:
         for target in opts.targets:
             try:
                 failed += scrape_profile(target, opts, aria2, ffmpeg)
+            except RateLimited:
+                raise
             except ScrapeError as e:
                 failed += 1
                 log(bold_red(t("Error: ", "Lỗi: ")) + red(str(e)), err=True)
+    except RateLimited:
+        log("\n" + bold_red(t("✗ TikTok keeps refusing requests (HTTP 429/403), so the run stopped.",
+                               "✗ TikTok liên tục từ chối request (HTTP 429/403) nên tool đã dừng.")) + "\n"
+            + yellow(t("  Wait a while (or use a larger --wait / fewer --workers), then run the same "
+                       "command again to continue.",
+                       "  Hãy đợi một lúc (hoặc tăng --wait / giảm --workers), rồi chạy lại đúng lệnh cũ "
+                       "để tải tiếp.")), err=True)
+        sys.exit(1)
     except KeyboardInterrupt:
         log("\n" + yellow(t("Stopped. Run the same command again to continue.",
                              "Đã dừng. Chạy lại đúng lệnh cũ để tải tiếp.")), err=True)
