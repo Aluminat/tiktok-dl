@@ -37,7 +37,6 @@ import shutil
 import sqlite3
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor

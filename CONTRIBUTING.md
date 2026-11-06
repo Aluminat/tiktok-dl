@@ -51,7 +51,31 @@ download works and has a code map. In short:
 
 ## Test your change
 
-There are no automated tests yet. Before opening a pull request, run at least:
+### Automated checks
+
+Install the dev tools once (inside a virtual environment if you like):
+
+```bash
+pip install -r requirements.txt -r requirements-dev.txt
+```
+
+Then, from the repo root:
+
+```bash
+ruff check .      # lint (settings in ruff.toml)
+pytest            # unit tests in tests/, no network needed
+```
+
+The tests load `tiktok-dl.py` straight from its file (see `tests/conftest.py`), so there is
+nothing to install or rename. They never call TikTok: anything that would use the network is
+mocked, and a test that tries a real HTTP request fails. When you fix a bug, add a test for it.
+
+GitHub Actions runs the same two commands on every push and pull request, on Windows and Linux
+with Python 3.10 and 3.13 (`.github/workflows/ci.yml`).
+
+### Manual checks
+
+The tests don't cover downloading and muxing. Before opening a pull request, run at least:
 
 ```bash
 python tiktok-dl.py @tiktok -n 5                 # normal videos
