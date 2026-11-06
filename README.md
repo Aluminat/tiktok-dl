@@ -36,6 +36,21 @@ The script looks for each tool next to `tiktok-dl.py` first, then in `PATH`.
   (installed in step 2), so a separate ffmpeg install is optional.
 - **aria2c:** if it is not found, files are downloaded with Python `requests` instead (slower).
 
+### Or install it as a command
+
+Instead of steps 2 and 3 above, you can install `tiktok-dl` as a command with
+[pipx](https://pipx.pypa.io) (or `uv tool install`), without cloning the repo:
+
+```bash
+pipx install git+https://github.com/Aluminat/tiktok-dl
+tiktok-dl @username
+```
+
+Then use `tiktok-dl` wherever the commands below say `python tiktok-dl.py`.
+Update with `pipx upgrade tiktok-dl`, remove with `pipx uninstall tiktok-dl`.
+An installed copy finds aria2c and ffmpeg through `PATH` (on Windows, put the `.exe` files in a
+folder that is in `PATH`), and still falls back to the ffmpeg from `imageio-ffmpeg`.
+
 On Linux/macOS, use `python3` instead of `python` in the commands below.
 
 ## Use
