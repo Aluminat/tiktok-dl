@@ -20,9 +20,23 @@ Tải toàn bộ video của một profile TikTok, kèm đầy đủ thông tin.
    ```bash
    pip install -r requirements.txt
    ```
-3. Đặt `aria2c.exe` và `ffmpeg.exe` cạnh file `tiktok-dl.py`
-   - aria2c: https://github.com/aria2/aria2/releases
-   - ffmpeg: https://www.gyan.dev/ffmpeg/builds/
+   Trên Linux/macOS thì dùng `python3 -m pip install -r requirements.txt`.
+   Nếu pip báo môi trường "externally managed", hãy tạo môi trường ảo trước:
+   `python3 -m venv .venv && . .venv/bin/activate`
+3. Cài aria2c và ffmpeg (cả hai đều không bắt buộc, xem bên dưới):
+   - **Windows:** đặt `aria2c.exe` và `ffmpeg.exe` cạnh file `tiktok-dl.py`
+     - aria2c: https://github.com/aria2/aria2/releases
+     - ffmpeg: https://www.gyan.dev/ffmpeg/builds/
+   - **Debian/Ubuntu:** `sudo apt install aria2 ffmpeg`
+   - **macOS** (dùng [Homebrew](https://brew.sh)): `brew install aria2 ffmpeg`
+
+Tool tìm từng chương trình cạnh file `tiktok-dl.py` trước, sau đó mới tìm trong `PATH`.
+
+- **ffmpeg:** nếu không tìm thấy, tool dùng ffmpeg đi kèm gói `imageio-ffmpeg`
+  (đã cài ở bước 2), nên không cài ffmpeg riêng cũng được.
+- **aria2c:** nếu không có, tool tải bằng `requests` của Python (chậm hơn).
+
+Trên Linux/macOS, dùng `python3` thay cho `python` trong các lệnh bên dưới.
 
 ## Cách dùng
 

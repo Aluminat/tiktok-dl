@@ -7,22 +7,31 @@ Thanks for helping! Bug reports, fixes and small features are all welcome.
 
 ## Report a bug
 
-Open an [issue](https://github.com/doumamay/tiktok-dl/issues) with:
+Open an [issue](https://github.com/Aluminat/tiktok-dl/issues) with:
 
 - the command you ran (you can hide the username)
 - what you expected and what happened
 - the error text, or the lines from `failed.txt`
-- your OS and Python version (`python --version`)
+- your OS and Python version (`python --version`, or `python3 --version` on Linux/macOS)
 
 ## Set up
+
+Fork [Aluminat/tiktok-dl](https://github.com/Aluminat/tiktok-dl) on GitHub, then clone your fork:
 
 ```bash
 git clone https://github.com/<your-name>/tiktok-dl.git
 cd tiktok-dl
+git remote add upstream https://github.com/Aluminat/tiktok-dl.git
 pip install -r requirements.txt
 ```
 
-Put `aria2c.exe` and `ffmpeg.exe` next to `tiktok-dl.py` (or have them in `PATH`).
+On Linux/macOS use `python3` / `python3 -m pip` instead of `python` / `pip`.
+
+Install aria2c and ffmpeg as described in [README.md](README.md#install): on Windows put
+`aria2c.exe` and `ffmpeg.exe` next to `tiktok-dl.py`; on Linux/macOS run
+`sudo apt install aria2 ffmpeg` or `brew install aria2 ffmpeg`. The script looks next to
+`tiktok-dl.py` first, then in `PATH`. Both are optional: ffmpeg falls back to `imageio-ffmpeg`,
+and without aria2c files are downloaded with `requests` (slower).
 
 ## Where things are
 
@@ -88,7 +97,7 @@ Then run the first command again: it should skip the posts it already downloaded
 
 ## Send a pull request
 
-1. **Fork** the repo on GitHub (button in the top right).
+1. **Fork** [Aluminat/tiktok-dl](https://github.com/Aluminat/tiktok-dl) on GitHub (button in the top right).
 2. Create a branch for your change:
    ```bash
    git checkout -b fix-short-links
@@ -103,6 +112,7 @@ Then run the first command again: it should skip the posts it already downloaded
    ```bash
    git push -u origin fix-short-links
    ```
-5. On GitHub, click **Compare & pull request** and fill in the template.
+5. On GitHub, click **Compare & pull request** (base repository: `Aluminat/tiktok-dl`, branch `main`)
+   and fill in the template.
 
 Keep one topic per pull request. Small pull requests get reviewed faster.
