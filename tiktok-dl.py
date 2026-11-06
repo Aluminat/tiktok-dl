@@ -343,6 +343,21 @@ class RateLimited(ScrapeError):
     """TikTok answered too many page reads in a row with HTTP 429/403: stop the whole run."""
 
 
+class Challenged(ScrapeError):
+    """TikTok answered a page read with its bot-protection challenge page instead of the page."""
+
+
+class ChallengeStop(RateLimited):
+    """Too many page reads in a row got the challenge page: stop the whole run like RateLimited."""
+
+
+def challenge_message() -> str:
+    return t("TikTok's bot protection blocked the request (challenge page). Try again later or from another "
+             "network (VPN off, a different connection); --session-id doesn't help with this.",
+             "Lớp chống bot của TikTok đã chặn request (trang xác minh). Hãy thử lại sau hoặc dùng mạng khác "
+             "(tắt VPN, đổi kết nối); --session-id không giúp được trường hợp này.")
+
+
 def find_tool(name: str) -> Optional[str]:
     """Prefer an executable next to tiktok-dl.py (e.g. aria2c.exe, ffmpeg.exe), then PATH."""
     for cand in (SCRIPT_DIR / f"{name}.exe", SCRIPT_DIR / name):
@@ -462,6 +477,19 @@ def backoff_delay(attempt: int, retry_after: Optional[float] = None) -> float:
     return min(BACKOFF_MAX, delay)
 
 
+# TikTok's bot protection (WAF) may answer a page read with a small (~1.4 KB) "Please wait..." page
+# that runs a challenge script (waf-aiso) instead of the real page. We only detect it, never solve it.
+# It does not clear within seconds, so it is not retried; CHALLENGE_STREAK such answers in a row stop
+# the run.
+CHALLENGE_MARKERS = ("_wafchallengeid", "waf-aiso")
+CHALLENGE_STREAK = 3
+
+
+def is_challenge_page(html: str) -> bool:
+    """True for TikTok's bot-protection challenge page (challenge markers, no embedded page data)."""
+    return any(m in html for m in CHALLENGE_MARKERS) and not REHYDRATION_RE.search(html)
+
+
 class TikTok:
     def __init__(self, session_id: Optional[str] = None, wait: float = 0.3, proxy: Optional[str] = None):
         self.s = requests.Session()
@@ -486,6 +514,8 @@ class TikTok:
         self._warned = False
         self._streak = 0          # rate-limited answers in a row
         self._stopped = False     # set when the streak is too long or the run is stopping
+        self._challenges = 0      # challenge-page answers in a row
+        self._challenge_stop = False  # stopped because of the challenge page
 
     def stop(self) -> None:
         """Make queued and waiting page reads give up at once (run aborted or interrupted)."""
@@ -493,6 +523,8 @@ class TikTok:
 
     def _check_stopped(self) -> None:
         if self._stopped:
+            if self._challenge_stop:
+                raise ChallengeStop(challenge_message())
             raise RateLimited(t("stopped, TikTok keeps limiting requests",
                                 "đã dừng, TikTok liên tục giới hạn request"))
 
@@ -513,11 +545,22 @@ class TikTok:
         """Count a 429/403 answer: stop the run after too many in a row, else pause if retrying."""
         with self._backoff_lock:
             self._streak += 1
+            self._challenges = 0
             if self._streak >= RATE_LIMIT_STREAK:
                 self._stopped = True
         self._check_stopped()
         if retry:
             self._back_off(r, attempt)
+
+    def _challenged(self) -> None:
+        """Count a challenge-page answer and raise at once: no retry, no backoff pause."""
+        with self._backoff_lock:
+            self._streak = 0
+            self._challenges += 1
+            if self._challenges >= CHALLENGE_STREAK and not self._stopped:
+                self._stopped = self._challenge_stop = True
+        self._check_stopped()
+        raise Challenged(challenge_message())
 
     def _back_off(self, r: requests.Response, attempt: int) -> None:
         """Pause every page read after a rate-limited response; warn the user the first time."""
@@ -539,6 +582,8 @@ class TikTok:
             self._throttle()
             try:
                 r = self.s.get(url, timeout=25)
+                if is_challenge_page(r.text):
+                    self._challenged()  # raises: retrying within seconds won't get past it
                 if r.status_code in RATE_LIMIT_CODES:
                     # No pause after the last attempt: nothing retries it.
                     self._rate_limited(r, attempt, retry=attempt + 1 < attempts)
@@ -547,6 +592,7 @@ class TikTok:
                     continue  # the backoff pause replaces the fixed retry delay below
                 with self._backoff_lock:
                     self._streak = 0
+                    self._challenges = 0
                 m = REHYDRATION_RE.search(r.text)
                 if m:
                     data = json.loads(m.group(1)).get("__DEFAULT_SCOPE__", {}).get(scope)
@@ -1179,6 +1225,9 @@ def save_profile(tt: TikTok, username: str, out_dir: Path) -> Optional[dict]:
         info = tt.user(username)
     except RateLimited:
         raise
+    except Challenged as e:
+        # Stop this profile now: the post list (yt-dlp) would only fail with a misleading error.
+        raise Challenged(f"@{username}: {e}") from None
     except ScrapeError as e:
         if e.code in FATAL_PROFILE_CODES:
             raise ScrapeError(f"@{username}: {e}", e.code)
@@ -1213,12 +1262,13 @@ def write_csv(out_dir: Path) -> int:
     return len(rows)
 
 
-def write_failed_file(progress: Progress, out_dir: Path, username: str) -> int:
+def write_failed_file(progress: Progress, out_dir: Path, username: str, stop_note: Optional[str] = None) -> int:
     """Rebuild failed.txt from the progress database, so it lists every post of the profile that is
-    still failing, not only this run's failures. Removed when nothing fails. Returns the post count."""
+    still failing, not only this run's failures. `stop_note` (why the run stopped early) is added to
+    the header. Removed when nothing fails and there is no stop note. Returns the failing post count."""
     failed_file = out_dir / "failed.txt"
     failures = progress.failures()
-    if not failures:
+    if not failures and not stop_note:
         failed_file.unlink(missing_ok=True)
         return 0
     n = len(failures)
@@ -1231,6 +1281,8 @@ def write_failed_file(progress: Progress, out_dir: Path, username: str) -> int:
                           "use --retry-all to try them anyway.",
                           "# Bài có ghi (bỏ qua) không bao giờ tải được nên sẽ không thử lại; "
                           "thêm --retry-all nếu vẫn muốn thử."))
+    if stop_note:
+        lines.insert(2, stop_note)
     for pid, url, reason, state in failures:
         # Rows written by older versions have no link: fall back to the /video/ form.
         url = url or f"https://www.tiktok.com/@{username}/video/{pid}"
@@ -1366,6 +1418,7 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
     mux_pool = ThreadPoolExecutor(opts.mux_jobs)
     mux_futures = []
     completed = False
+    stopped: Optional[ChallengeStop] = None
     with bar:
         try:
             upcoming = meta_pool.submit(fetch_batch, batches[0])
@@ -1439,12 +1492,14 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
         except KeyboardInterrupt:
             STOP.set()
             raise
+        except ChallengeStop as e:
+            stopped = e  # write failed.txt first, then stop the run
         finally:
             tt.stop()  # queued page reads of an aborted batch give up instead of running on
             meta_pool.shutdown(wait=False, cancel_futures=True)
             # On Ctrl+C, drop queued mux jobs; running ones were stopped by Ctrl+C too and end quickly.
             mux_pool.shutdown(wait=True, cancel_futures=STOP.is_set())
-            if not completed:
+            if not completed and not stopped:
                 progress.close()   # the run is ending with an error: nothing below runs
 
     ok, failed, total_bytes = tally["ok"], tally["failed"], tally["bytes"]
@@ -1452,8 +1507,15 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
     if not opts.keep_parts and work.exists() and not any(p.is_dir() for p in work.iterdir()):
         shutil.rmtree(work, ignore_errors=True)
 
-    all_failed = write_failed_file(progress, out_dir, username)
+    stop_note = None
+    if stopped:
+        left = n - ok - failed
+        stop_note = t(f"# The run stopped early, {left} posts were not processed: {stopped}",
+                      f"# Tool đã dừng sớm, còn {left} bài chưa xử lý: {stopped}")
+    all_failed = write_failed_file(progress, out_dir, username, stop_note)
     progress.close()
+    if stopped:
+        raise stopped
 
     secs = max(1.0, time.monotonic() - started)
     dot = gray(" · ")
@@ -1611,6 +1673,16 @@ def main() -> None:
             except ScrapeError as e:
                 failed += 1
                 log(bold_red(t("Error: ", "Lỗi: ")) + red(str(e)), err=True)
+    except ChallengeStop:
+        log("\n" + bold_red(t("✗ TikTok's bot protection keeps blocking requests (challenge page), so the run stopped.",
+                               "✗ Lớp chống bot của TikTok liên tục chặn request (trang xác minh) nên tool đã dừng."))
+            + "\n" + yellow(t("  Finished posts are kept. Try again later or from another network (VPN off, a "
+                              "different connection) with the same command to continue; --session-id doesn't "
+                              "help with this.",
+                              "  Các bài đã xong vẫn được giữ. Hãy chạy lại đúng lệnh cũ sau một lúc hoặc bằng mạng "
+                              "khác (tắt VPN, đổi kết nối) để tải tiếp; --session-id không giúp được trường hợp "
+                              "này.")), err=True)
+        sys.exit(1)
     except RateLimited:
         log("\n" + bold_red(t("✗ TikTok keeps refusing requests (HTTP 429/403), so the run stopped.",
                                "✗ TikTok liên tục từ chối request (HTTP 429/403) nên tool đã dừng.")) + "\n"

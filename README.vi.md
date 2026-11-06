@@ -165,6 +165,7 @@ trong lịch sử lệnh. Nếu đặt cả hai thì `--session-id` được ưu
 - **Vài bài bị lỗi:** xem file `failed.txt` trong thư mục tải (có link và lý do từng bài), rồi chạy lại đúng lệnh cũ
 - **Video quảng cáo / TikTok Shop bị lỗi:** TikTok không cung cấp link tải cho loại video này qua web, kể cả khi đã đăng nhập. Chúng được liệt kê trong `failed.txt` để bạn tự mở xem, và các lần chạy lại sẽ bỏ qua chúng (thêm `--retry-all` để thử lại)
 - **Tài khoản riêng tư:** đặt biến `TIKTOK_SESSIONID` (hoặc thêm `--session-id`), xem [Lấy session ID](#lấy-session-id-không-bắt-buộc)
+- **"Lớp chống bot của TikTok đã chặn request (trang xác minh)":** TikTok trả về trang kiểm tra "Please wait..." thay vì trang thật. Tool không thử lại trường hợp này: nếu trang profile bị chặn, profile đó sẽ bị bỏ qua; nếu 3 trang bài đăng liên tiếp bị chặn, tool sẽ dừng (các bài đã xong vẫn được giữ và `failed.txt` ghi rõ lý do). Hãy thử lại sau hoặc dùng mạng khác (tắt VPN, đổi kết nối). `--session-id` không giúp được trường hợp này
 
 ## Đóng góp
 

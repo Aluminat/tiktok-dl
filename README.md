@@ -165,6 +165,7 @@ shell history. If both are set, `--session-id` wins.
 - **Some posts failed:** see `failed.txt` in the output folder (link + reason for each post), then run the same command again
 - **Ad / TikTok Shop videos fail:** TikTok does not give a download link for these on the web, even when you are logged in. They are listed in `failed.txt` so you can open them yourself, and re-runs skip them (use `--retry-all` to try again)
 - **Private account:** set `TIKTOK_SESSIONID` (or add `--session-id`), see [Get your session ID](#get-your-session-id-optional)
+- **"TikTok's bot protection blocked the request (challenge page)":** TikTok answered with its "Please wait..." check page instead of the real page. The tool does not retry it: if the profile page is blocked, that profile is skipped; if 3 post pages in a row are blocked, the run stops (finished posts are kept and `failed.txt` says why). Try again later or from another network (VPN off, a different connection). `--session-id` does not help with this
 
 ## Contributing
 
