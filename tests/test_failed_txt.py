@@ -106,7 +106,7 @@ class FakeTikTok:
 def make_opts(tmp_path) -> SimpleNamespace:
     return SimpleNamespace(output=str(tmp_path), session_id=None, wait=0, proxy=None, limit=None,
                            metadata_only=False, workers=1, batch=10, mux_jobs=1, keep_parts=False,
-                           jobs=1, connections=1, cover=False, subs="none")
+                           jobs=1, connections=1, cover=False, subs="none", retry_all=False)
 
 
 def test_single_video_run_keeps_earlier_failures(tdl, tmp_path, monkeypatch, capsys):

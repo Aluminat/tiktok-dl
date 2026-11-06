@@ -90,6 +90,8 @@ STATUS_MESSAGES = {
     10223: ("account is restricted", "tài khoản bị hạn chế"),
 }
 FATAL_PROFILE_CODES = {10202, 10221, 10222, 10223}
+# Post errors that no re-run can fix: the post is marked "skipped" and not fetched again (see --retry-all).
+PERMANENT_POST_CODES = {10204}
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -665,10 +667,15 @@ class Progress:
                             (post_id, state, file, error, datetime.now().isoformat(timespec="seconds"), url))
             self.db.commit()
 
-    def failures(self) -> list[tuple[str, Optional[str], Optional[str]]]:
-        """(id, link, reason) of every post whose latest status is an error."""
+    def skipped(self) -> set[str]:
+        """Ids of posts that can never be downloaded (deleted, ad / TikTok Shop)."""
         with self.lock:
-            return self.db.execute("SELECT id, url, error FROM posts WHERE status = 'error' "
+            return {row[0] for row in self.db.execute("SELECT id FROM posts WHERE status = 'skipped'")}
+
+    def failures(self) -> list[tuple[str, Optional[str], Optional[str], str]]:
+        """(id, link, reason, status) of every post whose latest status is an error or skipped."""
+        with self.lock:
+            return self.db.execute("SELECT id, url, error, status FROM posts WHERE status IN ('error', 'skipped') "
                                    "ORDER BY updated, id").fetchall()
 
 
@@ -684,6 +691,7 @@ class Post:
         self.work = work / self.id
         self.tasks: list[tuple[list[str], Path, int]] = []   # (mirrors, dest, expected size)
         self.hidden: Optional[str] = None                    # reason when TikTok gives no download link
+        self.permanent = False                               # True when no re-run can ever download it
         video = item.get("video") or {}
         images = (item.get("imagePost") or {}).get("images") or []
         self.is_slide = bool(images)
@@ -708,6 +716,7 @@ class Post:
         if not mirrors:
             # TikTok withholds the video URL on purpose, typically for ad / TikTok Shop posts.
             if item.get("isAd") or item.get("isECVideo"):
+                self.permanent = True
                 self.hidden = t("ad / TikTok Shop video: TikTok does not provide a download link on the web "
                                 "(even when logged in)",
                                 "video quảng cáo / TikTok Shop: TikTok không cung cấp link tải qua web "
@@ -1010,10 +1019,16 @@ def write_failed_file(progress: Progress, out_dir: Path, username: str) -> int:
                f"# @{username} - {n} bài không tải được - {datetime.now():%Y-%m-%d %H:%M}"),
              t("# Run the same command again to retry. Open each link to check the post yourself.",
                "# Chạy lại đúng lệnh cũ để thử lại. Mở từng link để tự kiểm tra bài đó."), ""]
-    for pid, url, reason in failures:
+    if any(state == "skipped" for *_, state in failures):
+        lines.insert(2, t("# Posts marked (skipped) can never be downloaded and are not tried again; "
+                          "use --retry-all to try them anyway.",
+                          "# Bài có ghi (bỏ qua) không bao giờ tải được nên sẽ không thử lại; "
+                          "thêm --retry-all nếu vẫn muốn thử."))
+    for pid, url, reason, state in failures:
         # Rows written by older versions have no link: fall back to the /video/ form.
         url = url or f"https://www.tiktok.com/@{username}/video/{pid}"
-        lines.append(f"{url}\n    {reason or t('unknown error', 'lỗi không rõ')}")
+        note = t("  (skipped)", "  (bỏ qua)") if state == "skipped" else ""
+        lines.append(f"{url}\n    {reason or t('unknown error', 'lỗi không rõ')}{note}")
     failed_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return n
 
@@ -1052,9 +1067,18 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
         pending = [e for e in entries if not (out_dir / "metadata" / f"{e['id']}.json").exists()]
     else:
         pending = [e for e in entries if not progress.done(str(e["id"]), out_dir)]
-    if len(pending) < len(entries):
-        skipped = len(entries) - len(pending)
-        log(gray(t(f"  Skipping {skipped} posts already downloaded.", f"  Bỏ qua {skipped} bài đã có.")))
+    finished = len(entries) - len(pending)
+    if not opts.retry_all:
+        never = progress.skipped()
+        pending = [e for e in pending if str(e["id"]) not in never]
+    permanent = len(entries) - finished - len(pending)
+    if finished and not permanent:
+        log(gray(t(f"  Skipping {finished} posts already downloaded.", f"  Bỏ qua {finished} bài đã có.")))
+    elif permanent:
+        log(gray(t(f"  Skipping {finished + permanent} posts: {finished} already downloaded, {permanent} that "
+                   "can never be downloaded (deleted / ad posts, see failed.txt; --retry-all to try again).",
+                   f"  Bỏ qua {finished + permanent} bài: {finished} bài đã có, {permanent} bài không bao giờ tải "
+                   "được (đã xoá / quảng cáo, xem failed.txt; thêm --retry-all để thử lại).")))
 
     n = len(pending)
     if not n:
@@ -1089,7 +1113,7 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
         try:
             return entry, tt.item(username, str(entry["id"])), None
         except ScrapeError as e:
-            return entry, None, str(e)
+            return entry, None, e
         except Exception as e:   # an odd page must fail only this post, not the whole batch
             return entry, None, t(f"unexpected page format ({type(e).__name__}: {e})",
                                   f"trang có định dạng không như dự kiến ({type(e).__name__}: {e})")
@@ -1135,7 +1159,8 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
                     pid = str(entry["id"])
                     if err:
                         reason = t(f"could not read the post page: {err}", f"không đọc được trang bài đăng: {err}")
-                        progress.mark(pid, "error", error=reason, url=post_url(pid))
+                        state = "skipped" if err.code in PERMANENT_POST_CODES else "error"
+                        progress.mark(pid, state, error=reason, url=post_url(pid))
                         fail(post_url(pid), reason)
                         continue
                     try:
@@ -1155,7 +1180,7 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
                         succeed(f"{gray('metadata')} {pid}")
                         continue
                     if post.hidden:
-                        progress.mark(pid, "error", error=post.hidden, url=post.url)
+                        progress.mark(pid, "skipped" if post.permanent else "error", error=post.hidden, url=post.url)
                         fail(post.url, post.hidden)
                         continue
                     posts.append(post)
@@ -1279,6 +1304,11 @@ def main() -> None:
                           "số giây mỗi ảnh trong slideshow (mặc định: 3)"))
     p.add_argument("--keep-parts", action="store_true",
                    help=t("keep temporary files in .parts/", "giữ lại file tạm trong .parts/"))
+    p.add_argument("--retry-all", action="store_true",
+                   help=t("also retry posts that can never be downloaded (deleted, ad / TikTok Shop), "
+                          "which re-runs skip by default",
+                          "thử lại cả những bài không bao giờ tải được (đã xoá, quảng cáo / TikTok Shop) "
+                          "mà mặc định các lần chạy lại sẽ bỏ qua"))
     p.add_argument("--session-id",
                    help=t('your TikTok "sessionid" cookie (age-restricted posts, private accounts you follow)',
                           'cookie "sessionid" tài khoản TikTok của bạn (bài giới hạn tuổi, '
