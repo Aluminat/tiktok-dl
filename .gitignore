@@ -3,3 +3,6 @@ __pycache__/
 downloads/
 aria2c.exe
 ffmpeg.exe
+.venv/
+.pytest_cache/
+.ruff_cache/
