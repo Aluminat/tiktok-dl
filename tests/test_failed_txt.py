@@ -157,3 +157,27 @@ def test_run_failure_uses_photo_link(tdl, tmp_path, monkeypatch, capsys):
     text = (tmp_path / USER / "failed.txt").read_text(encoding="utf-8")
     assert f"https://www.tiktok.com/@{USER}/photo/777\n    mux failed" in text
     assert "✗ 1" in capsys.readouterr().out
+
+
+def test_run_unexpected_error_uses_photo_link(tdl, tmp_path, monkeypatch, capsys):
+    def photo_item(self, username, video_id):
+        item = make_item(video_id)
+        item["imagePost"] = {"images": [{"imageURL": {"urlList": ["https://cdn.example/1.jpg"]}}]}
+        return item
+
+    def buggy_finalize(post, out_dir, ffmpeg, opts):
+        raise ValueError("boom")
+
+    monkeypatch.setattr(FakeTikTok, "item", photo_item)
+    monkeypatch.setattr(tdl, "TikTok", FakeTikTok)
+    monkeypatch.setattr(tdl, "save_profile", lambda *a: None)
+    monkeypatch.setattr(tdl, "download_requests", lambda *a: None)
+    monkeypatch.setattr(tdl, "finalize", buggy_finalize)
+
+    failed = tdl.scrape_profile(f"https://www.tiktok.com/@{USER}/photo/777", make_opts(tmp_path), None, None)
+
+    assert failed == 1
+    text = (tmp_path / USER / "failed.txt").read_text(encoding="utf-8")
+    assert f"https://www.tiktok.com/@{USER}/photo/777\n    unexpected error (ValueError: boom)" in text
+    assert "/video/777" not in text
+    assert "✗ 1" in capsys.readouterr().out

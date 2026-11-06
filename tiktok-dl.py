@@ -1107,7 +1107,7 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
             return
         except Exception as e:   # a bug or odd data in one post must not stop the run
             reason = t(f"unexpected error ({type(e).__name__}: {e})", f"lỗi không lường trước ({type(e).__name__}: {e})")
-            progress.mark(post.id, "error", error=reason)
+            progress.mark(post.id, "error", error=reason, url=post.url)
             fail(post.url, reason)
             return
         progress.mark(post.id, "done", file=name)
@@ -1144,7 +1144,7 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
                     except Exception as e:   # odd field types in the post JSON: fail only this post
                         reason = t(f"unexpected page format ({type(e).__name__}: {e})",
                                    f"trang có định dạng không như dự kiến ({type(e).__name__}: {e})")
-                        progress.mark(pid, "error", error=reason)
+                        progress.mark(pid, "error", error=reason, url=post_url(pid))
                         fail(post_url(pid), reason)
                         continue
                     meta_path = out_dir / "metadata" / f"{pid}.json"
