@@ -20,9 +20,23 @@ Download every video from a TikTok profile, with full metadata.
    ```bash
    pip install -r requirements.txt
    ```
-3. Put `aria2c.exe` and `ffmpeg.exe` next to `tiktok-dl.py`
-   - aria2c: https://github.com/aria2/aria2/releases
-   - ffmpeg: https://www.gyan.dev/ffmpeg/builds/
+   On Linux/macOS use `python3 -m pip install -r requirements.txt`.
+   If pip says the environment is "externally managed", create a virtual environment first:
+   `python3 -m venv .venv && . .venv/bin/activate`
+3. Install aria2c and ffmpeg (both optional, see below):
+   - **Windows:** put `aria2c.exe` and `ffmpeg.exe` next to `tiktok-dl.py`
+     - aria2c: https://github.com/aria2/aria2/releases
+     - ffmpeg: https://www.gyan.dev/ffmpeg/builds/
+   - **Debian/Ubuntu:** `sudo apt install aria2 ffmpeg`
+   - **macOS** (with [Homebrew](https://brew.sh)): `brew install aria2 ffmpeg`
+
+The script looks for each tool next to `tiktok-dl.py` first, then in `PATH`.
+
+- **ffmpeg:** if none is found, it uses the ffmpeg that comes with the `imageio-ffmpeg` package
+  (installed in step 2), so a separate ffmpeg install is optional.
+- **aria2c:** if it is not found, files are downloaded with Python `requests` instead (slower).
+
+On Linux/macOS, use `python3` instead of `python` in the commands below.
 
 ## Use
 
