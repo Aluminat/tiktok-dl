@@ -453,10 +453,10 @@ class TikTok:
                 m = REHYDRATION_RE.search(r.text)
                 if m:
                     data = json.loads(m.group(1)).get("__DEFAULT_SCOPE__", {}).get(scope)
-                    if data is not None:
+                    if isinstance(data, dict):
                         return data
                 last = t(f"HTTP {r.status_code}, page has no data", f"HTTP {r.status_code}, trang không có dữ liệu")
-            except (requests.RequestException, ValueError) as e:
+            except (requests.RequestException, ValueError, AttributeError) as e:
                 last = str(e)
             time.sleep(1 + 2 * attempt)
         raise ScrapeError(last)
@@ -473,12 +473,21 @@ class TikTok:
     def user(self, username: str) -> dict:
         data = self._scope(f"https://www.tiktok.com/@{username}", "webapp.user-detail")
         self._check(data)
-        return data["userInfo"]
+        info = data.get("userInfo")
+        if not isinstance(info, dict):
+            raise ScrapeError(t("unexpected page format (no userInfo)",
+                                "trang có định dạng không như dự kiến (thiếu userInfo)"))
+        return info
 
     def item(self, username: str, video_id: str) -> dict:
         data = self._scope(f"https://www.tiktok.com/@{username}/video/{video_id}", "webapp.video-detail")
         self._check(data)
-        return data["itemInfo"]["itemStruct"]
+        info = data.get("itemInfo")
+        item = info.get("itemStruct") if isinstance(info, dict) else None
+        if not isinstance(item, dict) or not item.get("id"):
+            raise ScrapeError(t("unexpected page format (no itemInfo.itemStruct)",
+                                "trang có định dạng không như dự kiến (thiếu itemInfo.itemStruct)"))
+        return item
 
     def whoami(self) -> Optional[dict]:
         """The account logged in with the current cookies, or None when logged out.
@@ -1035,6 +1044,9 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
             return entry, tt.item(username, str(entry["id"])), None
         except ScrapeError as e:
             return entry, None, str(e)
+        except Exception as e:   # an odd page must fail only this post, not the whole batch
+            return entry, None, t(f"unexpected page format ({type(e).__name__}: {e})",
+                                  f"trang có định dạng không như dự kiến ({type(e).__name__}: {e})")
 
     def fetch_batch(batch):
         with ThreadPoolExecutor(opts.workers) as pool:
@@ -1046,6 +1058,11 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
         except (ScrapeError, OSError) as e:
             progress.mark(post.id, "error", error=str(e))
             fail(post.url, str(e))
+            return
+        except Exception as e:   # a bug or odd data in one post must not stop the run
+            reason = t(f"unexpected error ({type(e).__name__}: {e})", f"lỗi không lường trước ({type(e).__name__}: {e})")
+            progress.mark(post.id, "error", error=reason)
+            fail(post.url, reason)
             return
         progress.mark(post.id, "done", file=name)
         kind = magenta("[slideshow] ") if post.is_slide else ""
@@ -1074,14 +1091,22 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
                         progress.mark(pid, "error", error=err)
                         fail(post_url(pid), t(f"could not read the post page: {err}", f"không đọc được trang bài đăng: {err}"))
                         continue
+                    try:
+                        meta = flatten(item)
+                        post = None if opts.metadata_only else Post(item, work, opts)
+                    except Exception as e:   # odd field types in the post JSON: fail only this post
+                        reason = t(f"unexpected page format ({type(e).__name__}: {e})",
+                                   f"trang có định dạng không như dự kiến ({type(e).__name__}: {e})")
+                        progress.mark(pid, "error", error=reason)
+                        fail(post_url(pid), reason)
+                        continue
                     meta_path = out_dir / "metadata" / f"{pid}.json"
-                    meta_path.write_text(json.dumps({"metadata": flatten(item), "raw": item},
+                    meta_path.write_text(json.dumps({"metadata": meta, "raw": item},
                                                     ensure_ascii=False, indent=2), encoding="utf-8")
                     if opts.metadata_only:
                         progress.mark(pid, "metadata")
                         succeed(f"{gray('metadata')} {pid}")
                         continue
-                    post = Post(item, work, opts)
                     if post.hidden:
                         progress.mark(pid, "error", error=post.hidden)
                         fail(post.url, post.hidden)
