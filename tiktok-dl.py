@@ -711,6 +711,7 @@ class Post:
         self.tasks: list[tuple[list[str], Path, int]] = []   # (mirrors, dest, expected size)
         self.hidden: Optional[str] = None                    # reason when TikTok gives no download link
         self.permanent = False                               # True when no re-run can ever download it
+        self.incomplete = False                              # every video download came out truncated
         video = item.get("video") or {}
         images = (item.get("imagePost") or {}).get("images") or []
         self.is_slide = bool(images)
@@ -767,10 +768,11 @@ class Post:
             self.tasks.append(([sub["Url"]], dest, 0))
 
 
-def is_valid_file(dest: Path) -> bool:
-    """Reject "finished" downloads that are really HTML/JSON error pages."""
+def is_valid_file(dest: Path, expected: int = 0) -> bool:
+    """Reject "finished" downloads that are really HTML/JSON error pages, or that are smaller than
+    the size TikTok reports for them (expected, 0 = unknown)."""
     try:
-        if not dest.is_file() or dest.stat().st_size < 64 or Path(f"{dest}.aria2").exists():
+        if not dest.is_file() or dest.stat().st_size < max(64, expected) or Path(f"{dest}.aria2").exists():
             return False
         with open(dest, "rb") as fh:
             head = fh.read(16)
@@ -785,12 +787,20 @@ def is_valid_file(dest: Path) -> bool:
     return True
 
 
+def is_truncated(dest: Path, expected: int) -> bool:
+    """A download with valid content that stops short of the size TikTok reports."""
+    try:
+        return bool(expected) and is_valid_file(dest) and dest.stat().st_size < expected
+    except OSError:
+        return False
+
+
 def download_aria2(aria2: str, tasks, cookie: str, jobs: int, conns: int, attempt: int) -> None:
     # The download list goes to aria2c on stdin, with the cookie as a per-download option, so the
     # session ID is neither in the command line (visible to other processes) nor in a file on disk.
     lines = []
-    for mirrors, dest, _ in tasks:
-        if attempt >= len(mirrors) or is_valid_file(dest):
+    for mirrors, dest, expected in tasks:
+        if attempt >= len(mirrors) or is_valid_file(dest, expected):
             continue
         dest.parent.mkdir(parents=True, exist_ok=True)
         for leftover in (dest, Path(f"{dest}.aria2")):
@@ -816,10 +826,13 @@ def download_aria2(aria2: str, tasks, cookie: str, jobs: int, conns: int, attemp
         raise
 
 
-def download_requests(session: requests.Session, tasks, jobs: int) -> None:
+def download_requests(session: requests.Session, tasks, jobs: int) -> set[Path]:
+    """Download with plain requests. Returns the files that came down truncated at least once."""
+    truncated: set[Path] = set()
+
     def one(task):
-        mirrors, dest, _ = task
-        if is_valid_file(dest):
+        mirrors, dest, expected = task
+        if is_valid_file(dest, expected):
             return
         dest.parent.mkdir(parents=True, exist_ok=True)
         for url in mirrors:
@@ -830,15 +843,19 @@ def download_requests(session: requests.Session, tasks, jobs: int) -> None:
                         with open(dest, "wb") as fh:
                             for chunk in r.iter_content(1 << 16):
                                 fh.write(chunk)
-                    if is_valid_file(dest):
+                    if is_valid_file(dest, expected):
                         return
-                    break  # got an error page instead of media: try the next URL
+                    if not is_truncated(dest, expected):
+                        break  # got an error page instead of media: try the next URL
+                    truncated.add(dest)  # cut short: delete it and retry
+                    dest.unlink(missing_ok=True)
                 except requests.RequestException:
                     time.sleep(1)
         dest.unlink(missing_ok=True)
 
     with ThreadPoolExecutor(jobs) as pool:
         list(pool.map(one, tasks))
+    return truncated
 
 
 # --------------------------------------------------------------------------- #
@@ -968,6 +985,11 @@ def finalize(post: Post, out_dir: Path, ffmpeg: Optional[str], opts) -> tuple[st
         main = main or produced[0]
     else:
         if not post.video.exists() or post.video.stat().st_size < 1024:
+            if post.incomplete:
+                raise ScrapeError(t("video download incomplete: the file is smaller than the size TikTok "
+                                    "reports (every link was tried)",
+                                    "tải video không trọn vẹn: file nhỏ hơn dung lượng TikTok báo "
+                                    "(đã thử hết các link tải)"))
             raise ScrapeError(t("video could not be downloaded", "không tải được video"))
         main = out_dir / f"{post.base}.mp4"
         if ffmpeg:
@@ -1216,13 +1238,17 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
                 t0 = time.monotonic()
                 try:
                     if aria2:
+                        truncated: set[Path] = set()
                         for attempt in range(max((len(t[0]) for t in tasks), default=0)):
                             download_aria2(aria2, tasks, cookie, opts.jobs, opts.connections, attempt)
-                        for _, dest, _ in tasks:
-                            if not is_valid_file(dest):
+                            truncated.update(d for _, d, size in tasks if is_truncated(d, size))
+                        for _, dest, size in tasks:
+                            if not is_valid_file(dest, size):
                                 dest.unlink(missing_ok=True)
                     else:
-                        download_requests(tt.s, tasks, opts.jobs)
+                        truncated = download_requests(tt.s, tasks, opts.jobs)
+                    for post in posts:
+                        post.incomplete = not post.is_slide and post.video in truncated
                 finally:
                     bar.downloaded()
                 with tally_lock:
