@@ -67,7 +67,7 @@ def opts(tmp_path, **kw):
     base = dict(output=str(tmp_path / "out"), session_id=None, wait=0, proxy=None, limit=None,
                 metadata_only=False, batch=50, workers=1, mux_jobs=1, jobs=2, connections=1,
                 cover=True, subs="original", slideshow=True, keep_images=False, slide_seconds=3.0,
-                keep_parts=False)
+                keep_parts=False, retry_all=False)
     base.update(kw)
     return SimpleNamespace(**base)
 
@@ -200,21 +200,30 @@ def test_requests_leftover_is_held_to_reported_size(tdl, tmp_path):
 # --------------------------------------------------------------------------- #
 
 class FakeAria2:
-    """Stands in for aria2c: reads the input file and writes the body queued for each URL."""
+    """Stands in for aria2c: reads the download list from stdin and writes the body queued for each URL."""
 
     def __init__(self, bodies: dict[str, list[bytes]]):
         self.bodies = bodies
         self.calls: list[str] = []
 
     def __call__(self, cmd, **kwargs):
-        inp = Path(next(a for a in cmd if a.startswith("--input-file=")).split("=", 1)[1])
-        lines = inp.read_text(encoding="utf-8").splitlines()
-        for url, folder, name in zip(lines[::3], lines[1::3], lines[2::3]):
+        assert "--input-file=-" in cmd
+        return SimpleNamespace(communicate=self.run, terminate=lambda: None)
+
+    def run(self, data: bytes):
+        downloads = []  # [url, {option: value}] per download, in the aria2c input-file format
+        for line in data.decode("utf-8").splitlines():
+            if line.startswith(" "):
+                key, value = line.strip().split("=", 1)
+                downloads[-1][1][key] = value
+            elif line:
+                downloads.append([line, {}])
+        for url, options in downloads:
             self.calls.append(url)
             queue = self.bodies[url]
             body = queue.pop(0) if len(queue) > 1 else queue[0]
-            (Path(folder.split("=", 1)[1]) / name.split("=", 1)[1]).write_bytes(body)
-        return SimpleNamespace(wait=lambda: 0)
+            (Path(options["dir"]) / options["out"]).write_bytes(body)
+        return b"", b""
 
 
 def aria2_passes(tdl, tmp_path, monkeypatch, bodies, mirrors, sizes):
@@ -226,7 +235,7 @@ def aria2_passes(tdl, tmp_path, monkeypatch, bodies, mirrors, sizes):
     monkeypatch.setattr(tdl.subprocess, "Popen", fake)
     truncated = set()
     for attempt in range(len(mirrors)):
-        truncated |= tdl.download_aria2("aria2c", [(mirrors, dest, sizes)], "", 1, 1, work, attempt)
+        truncated |= tdl.download_aria2("aria2c", [(mirrors, dest, sizes)], "", 1, 1, attempt)
     return dest, truncated, fake.calls
 
 
@@ -256,7 +265,7 @@ def test_aria2_skips_complete_file(tdl, tmp_path, monkeypatch):
     dest = tmp_path / "video.mp4"
     dest.write_bytes(MP4)
     monkeypatch.setattr(tdl.subprocess, "Popen", lambda *a, **k: pytest.fail("aria2c should not run"))
-    tdl.download_aria2("aria2c", [([A], dest, {A: SIZE})], "", 1, 1, tmp_path, 0)
+    tdl.download_aria2("aria2c", [([A], dest, {A: SIZE})], "", 1, 1, 0)
     assert dest.read_bytes() == MP4
 
 
@@ -267,7 +276,7 @@ def test_aria2_leftover_is_held_to_reported_size(tdl, tmp_path, monkeypatch):
     dest.write_bytes(SHORT)  # cut short in an earlier run
     fake = FakeAria2({A: [MP4]})
     monkeypatch.setattr(tdl.subprocess, "Popen", fake)
-    tdl.download_aria2("aria2c", [([A, WM], dest, {A: SIZE})], "", 1, 1, work, 0)
+    tdl.download_aria2("aria2c", [([A, WM], dest, {A: SIZE})], "", 1, 1, 0)
     assert fake.calls == [A]
     assert dest.read_bytes() == MP4
 

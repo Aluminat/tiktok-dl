@@ -806,6 +806,7 @@ def download_aria2(aria2: str, tasks, cookie: str, jobs: int, conns: int, attemp
     lines = []
     queued = []
     for mirrors, dest, sizes in tasks:
+        sizes = sizes or {}  # None/{}: no size reported for any mirror
         # A file from an earlier pass was checked against its own URL then; a leftover from an
         # earlier run is held to the reported size.
         if attempt >= len(mirrors) or is_valid_file(dest, max(sizes.values(), default=0) if attempt == 0 else 0):
@@ -1260,7 +1261,7 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
                             if not is_valid_file(dest):
                                 dest.unlink(missing_ok=True)
                     else:
-                        truncated = download_requests(tt.s, tasks, opts.jobs)
+                        truncated = download_requests(tt.s, tasks, opts.jobs) or set()
                     for post in posts:
                         post.incomplete = not post.is_slide and post.video in truncated
                 finally:
