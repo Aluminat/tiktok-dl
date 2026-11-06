@@ -91,7 +91,7 @@ https://www.tiktok.com/@username/video/7705012484368780552
     video quảng cáo / TikTok Shop: TikTok không cung cấp link tải qua web (kể cả khi đã đăng nhập)
 ```
 
-`failed.txt` được cập nhật sau mỗi lần chạy và tự xoá khi không còn bài nào lỗi.
+`failed.txt` được cập nhật sau mỗi lần chạy và liệt kê mọi bài của kênh vẫn đang lỗi, kể cả bài lỗi từ những lần chạy trước (tải một video lẻ cũng không làm mất danh sách này). File tự xoá khi không còn bài nào lỗi.
 
 ## Lấy session ID (không bắt buộc)
 

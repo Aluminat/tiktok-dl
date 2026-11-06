@@ -647,18 +647,29 @@ class Progress:
         self.db = sqlite3.connect(path, check_same_thread=False)
         self.lock = threading.Lock()
         self.db.execute("CREATE TABLE IF NOT EXISTS posts (id TEXT PRIMARY KEY, status TEXT, "
-                        "file TEXT, error TEXT, updated TEXT)")
+                        "file TEXT, error TEXT, updated TEXT, url TEXT)")
+        # Databases from older versions have no url column.
+        if "url" not in [col[1] for col in self.db.execute("PRAGMA table_info(posts)")]:
+            self.db.execute("ALTER TABLE posts ADD COLUMN url TEXT")
         self.db.commit()
 
     def done(self, post_id: str, folder: Path) -> bool:
         row = self.db.execute("SELECT status, file FROM posts WHERE id = ?", (post_id,)).fetchone()
         return bool(row and row[0] == "done" and row[1] and (folder / row[1]).exists())
 
-    def mark(self, post_id: str, state: str, file: Optional[str] = None, error: Optional[str] = None) -> None:
+    def mark(self, post_id: str, state: str, file: Optional[str] = None, error: Optional[str] = None,
+             url: Optional[str] = None) -> None:
         with self.lock:
-            self.db.execute("INSERT OR REPLACE INTO posts VALUES (?, ?, ?, ?, ?)",
-                            (post_id, state, file, error, datetime.now().isoformat(timespec="seconds")))
+            self.db.execute("INSERT OR REPLACE INTO posts (id, status, file, error, updated, url) "
+                            "VALUES (?, ?, ?, ?, ?, ?)",
+                            (post_id, state, file, error, datetime.now().isoformat(timespec="seconds"), url))
             self.db.commit()
+
+    def failures(self) -> list[tuple[str, Optional[str], Optional[str]]]:
+        """(id, link, reason) of every post whose latest status is an error."""
+        with self.lock:
+            return self.db.execute("SELECT id, url, error FROM posts WHERE status = 'error' "
+                                   "ORDER BY updated, id").fetchall()
 
 
 # --------------------------------------------------------------------------- #
@@ -986,6 +997,27 @@ def write_csv(out_dir: Path) -> int:
     return len(rows)
 
 
+def write_failed_file(progress: Progress, out_dir: Path, username: str) -> int:
+    """Rebuild failed.txt from the progress database, so it lists every post of the profile that is
+    still failing, not only this run's failures. Removed when nothing fails. Returns the post count."""
+    failed_file = out_dir / "failed.txt"
+    failures = progress.failures()
+    if not failures:
+        failed_file.unlink(missing_ok=True)
+        return 0
+    n = len(failures)
+    lines = [t(f"# @{username} - {n} posts could not be downloaded - {datetime.now():%Y-%m-%d %H:%M}",
+               f"# @{username} - {n} bài không tải được - {datetime.now():%Y-%m-%d %H:%M}"),
+             t("# Run the same command again to retry. Open each link to check the post yourself.",
+               "# Chạy lại đúng lệnh cũ để thử lại. Mở từng link để tự kiểm tra bài đó."), ""]
+    for pid, url, reason in failures:
+        # Rows written by older versions have no link: fall back to the /video/ form.
+        url = url or f"https://www.tiktok.com/@{username}/video/{pid}"
+        lines.append(f"{url}\n    {reason or t('unknown error', 'lỗi không rõ')}")
+    failed_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return n
+
+
 def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str]) -> int:
     username, single = parse_target(target)
     out_dir = Path(opts.output).resolve() / username
@@ -1028,13 +1060,13 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
     if not n:
         log(green(t("  ✓ Nothing left to download.", "  ✓ Không còn bài nào cần tải.")))
         write_csv(out_dir)
+        write_failed_file(progress, out_dir, username)
         return 0
     log(gray(t(f"  Processing {n} post{'s' if n != 1 else ''} → ", f"  Bắt đầu xử lý {n} bài → "))
         + blue(str(out_dir)) + "\n")
     started = time.monotonic()
     tally = {"ok": 0, "failed": 0, "bytes": 0, "dl_bytes": 0, "dl_secs": 0.0}
     tally_lock = threading.Lock()
-    failures: list[tuple[str, str]] = []   # (link bài, lý do)
     bar = ProgressBar(n)
 
     def post_url(pid: str) -> str:
@@ -1050,7 +1082,6 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
     def fail(url: str, reason: str) -> None:
         with tally_lock:
             tally["failed"] += 1
-            failures.append((url, reason))
         bar.post_done(False)
         log(f"  {bold_red('✗')} {link(url)}\n      {gray('└')} {yellow(reason)}")
 
@@ -1071,7 +1102,7 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
         try:
             name, size, note = finalize(post, out_dir, ffmpeg, opts)
         except (ScrapeError, OSError) as e:
-            progress.mark(post.id, "error", error=str(e))
+            progress.mark(post.id, "error", error=str(e), url=post.url)
             fail(post.url, str(e))
             return
         except Exception as e:   # a bug or odd data in one post must not stop the run
@@ -1103,8 +1134,9 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
                 for entry, item, err in results:
                     pid = str(entry["id"])
                     if err:
-                        progress.mark(pid, "error", error=err)
-                        fail(post_url(pid), t(f"could not read the post page: {err}", f"không đọc được trang bài đăng: {err}"))
+                        reason = t(f"could not read the post page: {err}", f"không đọc được trang bài đăng: {err}")
+                        progress.mark(pid, "error", error=reason, url=post_url(pid))
+                        fail(post_url(pid), reason)
                         continue
                     try:
                         meta = flatten(item)
@@ -1123,7 +1155,7 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
                         succeed(f"{gray('metadata')} {pid}")
                         continue
                     if post.hidden:
-                        progress.mark(pid, "error", error=post.hidden)
+                        progress.mark(pid, "error", error=post.hidden, url=post.url)
                         fail(post.url, post.hidden)
                         continue
                     posts.append(post)
@@ -1163,16 +1195,7 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
     if not opts.keep_parts and work.exists() and not any(p.is_dir() for p in work.iterdir()):
         shutil.rmtree(work, ignore_errors=True)
 
-    failed_file = out_dir / "failed.txt"
-    if failures:
-        lines = [t(f"# @{username} - {len(failures)} posts could not be downloaded - {datetime.now():%Y-%m-%d %H:%M}",
-                   f"# @{username} - {len(failures)} bài không tải được - {datetime.now():%Y-%m-%d %H:%M}"),
-                 t("# Run the same command again to retry. Open each link to check the post yourself.",
-                   "# Chạy lại đúng lệnh cũ để thử lại. Mở từng link để tự kiểm tra bài đó."), ""]
-        lines += [f"{url}\n    {reason}" for url, reason in failures]
-        failed_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    else:
-        failed_file.unlink(missing_ok=True)
+    all_failed = write_failed_file(progress, out_dir, username)
 
     secs = max(1.0, time.monotonic() - started)
     dot = gray(" · ")
@@ -1187,8 +1210,11 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
     log(counts)
     log(gray(t("  Folder: ", "  Thư mục: ")) + blue(str(out_dir))
         + gray(t(f"  (videos.csv: {rows} post{'s' if rows != 1 else ''})", f"  (videos.csv: {rows} bài)")))
-    if failures:
-        log(yellow(t("  Failed posts with links: ", "  Danh sách bài lỗi kèm link: ")) + blue(str(failed_file)))
+    if all_failed:
+        # Counts every failing post of the profile, including ones from earlier runs.
+        log(yellow(t(f"  Failed posts with links ({all_failed}): ", f"  Danh sách bài lỗi kèm link ({all_failed}): "))
+            + blue(str(out_dir / "failed.txt")))
+    if failed:
         log(gray(t("  Run the same command again to retry failed posts (finished posts are skipped).",
                    "  Chạy lại đúng lệnh cũ để thử lại các bài lỗi (bài đã xong sẽ được bỏ qua).")))
     return failed
