@@ -869,6 +869,7 @@ def download_requests(session: requests.Session, tasks, jobs: int) -> set[Path]:
 
     def one(task):
         mirrors, dest, sizes = task
+        sizes = sizes or {}  # None/{}: no size reported for any mirror
         if STOP.is_set() or is_valid_file(dest, max(sizes.values(), default=0)):
             return
         dest.parent.mkdir(parents=True, exist_ok=True)

@@ -35,7 +35,7 @@ def make_opts(tmp_path: Path, **overrides) -> SimpleNamespace:
     opts = SimpleNamespace(
         output=str(tmp_path), session_id=None, wait=0, proxy=None, limit=None, metadata_only=False,
         batch=BATCH, workers=1, mux_jobs=1, jobs=1, connections=1, cover=False, subs="none",
-        slideshow=False, slide_seconds=3, keep_images=False, keep_parts=False,
+        slideshow=False, slide_seconds=3, keep_images=False, keep_parts=False, retry_all=False,
     )
     vars(opts).update(overrides)
     return opts
