@@ -1159,7 +1159,8 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
                     pid = str(entry["id"])
                     if err:
                         reason = t(f"could not read the post page: {err}", f"không đọc được trang bài đăng: {err}")
-                        state = "skipped" if err.code in PERMANENT_POST_CODES else "error"
+                        # getattr: err may also be a plain message string, not only a ScrapeError
+                        state = "skipped" if getattr(err, "code", 0) in PERMANENT_POST_CODES else "error"
                         progress.mark(pid, state, error=reason, url=post_url(pid))
                         fail(post_url(pid), reason)
                         continue

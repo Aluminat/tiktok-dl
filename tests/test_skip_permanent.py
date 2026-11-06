@@ -120,6 +120,24 @@ def test_rate_limit_is_temporary(tdl, tmp_path, run):
     assert statuses(tdl, tmp_path)["1"] == "error"
 
 
+def test_plain_string_fetch_error_is_temporary(tdl, tmp_path, run, monkeypatch):
+    # Other code paths in fetch() may return a message string instead of a ScrapeError.
+    real_pool = tdl.ThreadPoolExecutor
+
+    class StringErrorPool(real_pool):
+        def map(self, fn, *iterables, **kwargs):
+            results = super().map(fn, *iterables, **kwargs)
+            if fn.__name__ != "fetch":
+                return results
+            return [(entry, item, str(err) if err else None) for entry, item, err in results]
+
+    monkeypatch.setattr(tdl, "ThreadPoolExecutor", StringErrorPool)
+    run.behaviours["1"] = tdl.ScrapeError("unexpected page format", 10204)
+    run.behaviours["2"] = make_item("2")
+    run()
+    assert statuses(tdl, tmp_path) == {"1": "error", "2": "done"}
+
+
 def test_ad_post_is_permanent_but_restricted_is_not(tdl, tmp_path):
     opts = make_opts(tmp_path)
     assert tdl.Post(no_link_item("1", isAd=True), tmp_path, opts).permanent
