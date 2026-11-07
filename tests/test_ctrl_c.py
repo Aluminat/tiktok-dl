@@ -19,6 +19,7 @@ import pytest
 from tiktok_dl.core import console, tools
 from tiktok_dl.core.errors import ScrapeError
 from tiktok_dl.core.stop import STOP, wait_result
+from tiktok_dl.sites import tiktok
 
 N_POSTS = 12
 BATCH = 4
@@ -70,9 +71,9 @@ def profile(tdl, monkeypatch):
             return {"id": video_id, "createTime": 1700000000, "author": {"uniqueId": username},
                     "video": {"playAddr": f"https://example.invalid/{video_id}.mp4"}}
 
-    monkeypatch.setattr(tdl, "TikTok", FakeTikTok)
-    monkeypatch.setattr(tdl, "save_profile", lambda *args: None)
-    monkeypatch.setattr(tdl, "list_posts", lambda *args: [{"id": str(i)} for i in range(1, N_POSTS + 1)])
+    monkeypatch.setattr(tiktok, "TikTok", FakeTikTok)
+    monkeypatch.setattr(tiktok, "save_profile", lambda *args: None)
+    monkeypatch.setattr(tiktok, "list_posts", lambda *args: [{"id": str(i)} for i in range(1, N_POSTS + 1)])
     return SimpleNamespace(calls=calls, on_item=on_item)
 
 

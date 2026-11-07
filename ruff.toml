@@ -9,3 +9,4 @@ select = ["E", "F", "W", "I"]
 # A few existing lines are slightly over 120 characters (moved from the old single-file script).
 # Wrap them when you touch that code; new code (and tests) keep the limit.
 "tiktok_dl/cli.py" = ["E501"]
+"tiktok_dl/sites/tiktok.py" = ["E501"]

@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from tiktok_dl.core import console
+from tiktok_dl.sites import tiktok
 
 MP4 = b"\x00\x00\x00\x20ftypisom\x00\x00\x02\x00" + b"\x00" * 2000
 HTML = b"<!DOCTYPE html><html><body>Access Denied</body></html>" + b" " * 100
@@ -86,18 +87,18 @@ def video_item(size=SIZE, download_addr=WM):
 
 
 def test_post_records_expected_size_for_play_urls_only(tdl, tmp_path):
-    post = tdl.Post(video_item(), tmp_path, opts(tmp_path))
+    post = tiktok.Post(video_item(), tmp_path, opts(tmp_path))
     tasks = {dest.name: (mirrors, sizes) for mirrors, dest, sizes in post.tasks}
     assert tasks == {"video.mp4": ([A, B, WM], SIZED), "cover.img": (["https://cdn/cover.jpg"], {})}
 
 
 def test_post_downloadaddr_same_as_playaddr_keeps_size(tdl, tmp_path):
-    mirrors, _, sizes = tdl.Post(video_item(download_addr=A), tmp_path, opts(tmp_path)).tasks[0]
+    mirrors, _, sizes = tiktok.Post(video_item(download_addr=A), tmp_path, opts(tmp_path)).tasks[0]
     assert (mirrors, sizes) == ([A, B], SIZED)
 
 
 def test_post_unknown_size_has_no_sizes(tdl, tmp_path):
-    assert tdl.Post(video_item(size=None), tmp_path, opts(tmp_path)).tasks[0][2] == {}
+    assert tiktok.Post(video_item(size=None), tmp_path, opts(tmp_path)).tasks[0][2] == {}
 
 
 # --------------------------------------------------------------------------- #
@@ -301,8 +302,8 @@ def run_profile(tdl, tmp_path, monkeypatch, item, session=None, aria2=None):
         def stop(self):
             pass
 
-    monkeypatch.setattr(tdl, "TikTok", FakeTikTok)
-    monkeypatch.setattr(tdl, "save_profile", lambda *a: None)
+    monkeypatch.setattr(tiktok, "TikTok", FakeTikTok)
+    monkeypatch.setattr(tiktok, "save_profile", lambda *a: None)
     o = opts(tmp_path, cover=False)
     failed = tdl.scrape_profile(f"https://www.tiktok.com/@someone/video/{item['id']}", o, aria2, None)
     return failed, tmp_path / "out" / "someone"

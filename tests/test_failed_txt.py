@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from tiktok_dl.core.errors import ScrapeError
+from tiktok_dl.sites import tiktok
 
 USER = "someone"
 VIDEO_URL = f"https://www.tiktok.com/@{USER}/video/111"
@@ -126,8 +127,8 @@ def test_single_video_run_keeps_earlier_failures(tdl, tmp_path, monkeypatch, cap
         (out_dir / f"{post.id}.mp4").write_bytes(b"x")
         return f"{post.id}.mp4", 1, ""
 
-    monkeypatch.setattr(tdl, "TikTok", FakeTikTok)
-    monkeypatch.setattr(tdl, "save_profile", lambda *a: None)
+    monkeypatch.setattr(tiktok, "TikTok", FakeTikTok)
+    monkeypatch.setattr(tiktok, "save_profile", lambda *a: None)
     monkeypatch.setattr(tdl, "download_requests", lambda *a: None)
     monkeypatch.setattr(tdl, "finalize", fake_finalize)
 
@@ -151,8 +152,8 @@ def test_run_failure_uses_photo_link(tdl, tmp_path, monkeypatch, capsys):
         raise ScrapeError("mux failed")
 
     monkeypatch.setattr(FakeTikTok, "item", photo_item)
-    monkeypatch.setattr(tdl, "TikTok", FakeTikTok)
-    monkeypatch.setattr(tdl, "save_profile", lambda *a: None)
+    monkeypatch.setattr(tiktok, "TikTok", FakeTikTok)
+    monkeypatch.setattr(tiktok, "save_profile", lambda *a: None)
     monkeypatch.setattr(tdl, "download_requests", lambda *a: None)
     monkeypatch.setattr(tdl, "finalize", broken_finalize)
 
@@ -174,8 +175,8 @@ def test_run_unexpected_error_uses_photo_link(tdl, tmp_path, monkeypatch, capsys
         raise ValueError("boom")
 
     monkeypatch.setattr(FakeTikTok, "item", photo_item)
-    monkeypatch.setattr(tdl, "TikTok", FakeTikTok)
-    monkeypatch.setattr(tdl, "save_profile", lambda *a: None)
+    monkeypatch.setattr(tiktok, "TikTok", FakeTikTok)
+    monkeypatch.setattr(tiktok, "save_profile", lambda *a: None)
     monkeypatch.setattr(tdl, "download_requests", lambda *a: None)
     monkeypatch.setattr(tdl, "finalize", buggy_finalize)
 

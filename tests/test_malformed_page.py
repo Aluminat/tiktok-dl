@@ -13,6 +13,7 @@ import pytest
 import requests
 
 from tiktok_dl.core.errors import ScrapeError
+from tiktok_dl.sites import tiktok
 
 USER = "someone"
 GOOD_IDS = ["7300000000000000001", "7300000000000000003"]
@@ -78,7 +79,7 @@ def run(tdl, tmp_path, monkeypatch):
             dest.write_bytes(FAKE_MP4)
 
     entries = [{"id": pid} for pid in (GOOD_IDS[0], BAD_ID, GOOD_IDS[1])]
-    monkeypatch.setattr(tdl, "list_posts", lambda username, limit, cookiefile: entries)
+    monkeypatch.setattr(tiktok, "list_posts", lambda username, limit, cookiefile: entries)
     monkeypatch.setattr(tdl, "download_requests", fake_download)
     opts = types.SimpleNamespace(
         output=str(tmp_path), session_id=None, wait=0, proxy=None, limit=None, metadata_only=False,
@@ -119,13 +120,13 @@ def assert_good_posts_downloaded(out_dir):
 def test_item_missing_keys_raise_scrape_error(tdl, monkeypatch, item_info):
     mock_pages(monkeypatch, {post_url(BAD_ID): video_page(item_info)})
     with pytest.raises(ScrapeError, match="unexpected page format"):
-        tdl.TikTok(wait=0).item(USER, BAD_ID)
+        tiktok.TikTok(wait=0).item(USER, BAD_ID)
 
 
 def test_user_missing_user_info_raises_scrape_error(tdl, monkeypatch):
     mock_pages(monkeypatch, {f"https://www.tiktok.com/@{USER}": user_page(with_user_info=False)})
     with pytest.raises(ScrapeError, match="unexpected page format"):
-        tdl.TikTok(wait=0).user(USER)
+        tiktok.TikTok(wait=0).user(USER)
 
 
 def test_post_page_without_item_struct_fails_one_post(run, capsys):

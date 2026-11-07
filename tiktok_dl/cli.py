@@ -1,11 +1,10 @@
-"""Command line: the arguments and main(). For now it also holds the TikTok client and the main loop."""
+"""Command line: the arguments and main(). For now it also holds the downloads, muxing and the main loop."""
 from __future__ import annotations
 
 import argparse
 import csv
 import json
 import os
-import re
 import shutil
 import sqlite3
 import subprocess
@@ -13,10 +12,9 @@ import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
-from urllib.parse import urljoin
 
 import requests
 
@@ -39,343 +37,12 @@ from .core.console import (
     magenta,
     red,
     t,
-    warn,
     yellow,
 )
-from .core.errors import Challenged, ChallengeStop, RateLimited, ScrapeError
-from .core.pacing import PageReader
-from .core.site import Verdict
+from .core.errors import ChallengeStop, RateLimited, ScrapeError
 from .core.stop import STOP, wait_result
-from .core.util import UA, sanitize, to_int, uniq
-
-REHYDRATION_RE = re.compile(
-    r'<script[^>]+id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>(.*?)</script>', re.S)
-
-STATUS_MESSAGES = {
-    10101: ("TikTok server error", "lỗi máy chủ TikTok"),
-    10202: ("account does not exist", "tài khoản không tồn tại"),
-    10204: ("post does not exist or was deleted", "bài đăng không tồn tại hoặc đã bị xoá"),
-    10216: ("post is private", "bài đăng đang để riêng tư"),
-    10221: ("account is banned", "tài khoản đã bị cấm"),
-    10222: ("account is private", "tài khoản đang để riêng tư"),
-    10223: ("account is restricted", "tài khoản bị hạn chế"),
-}
-FATAL_PROFILE_CODES = {10202, 10221, 10222, 10223}
-# Post errors that no re-run can fix: the post is marked "skipped" and not fetched again (see --retry-all).
-PERMANENT_POST_CODES = {10204}
-
-# --------------------------------------------------------------------------- #
-# Helpers
-# --------------------------------------------------------------------------- #
-
-def challenge_message() -> str:
-    return t("TikTok's bot protection blocked the request (challenge page). Try again later or from another "
-             "network (VPN off, a different connection); --session-id doesn't help with this.",
-             "Lớp chống bot của TikTok đã chặn request (trang xác minh). Hãy thử lại sau hoặc dùng mạng khác "
-             "(tắt VPN, đổi kết nối); --session-id không giúp được trường hợp này.")
-
-
-SHORT_LINK_RE = re.compile(r"^(?:https?://)?(?:(?:vt|vm)\.tiktok\.com/|(?:www\.)?tiktok\.com/t/)\w+", re.I)
-
-
-def resolve_short_link(text: str) -> str:
-    """Expand a short link (vt.tiktok.com/..., vm.tiktok.com/..., tiktok.com/t/...) to the full URL."""
-    if not SHORT_LINK_RE.match(text):
-        return text
-    url = text if text.lower().startswith("http") else f"https://{text}"
-    try:
-        r = requests.get(url, headers={"User-Agent": UA}, allow_redirects=False, timeout=20)
-        for _ in range(5):
-            loc = r.headers.get("Location")
-            if not loc:
-                break
-            url = urljoin(url, loc)   # Location may be relative to the current URL
-            if re.search(r"tiktok\.com/@[^/?#]+", url):
-                return url
-            r = requests.get(url, headers={"User-Agent": UA}, allow_redirects=False, timeout=20)
-    except requests.RequestException as e:
-        raise ScrapeError(t(f"could not open short link {text} ({e})", f"không mở được link rút gọn {text} ({e})"))
-    raise ScrapeError(t(f"short link does not lead to a TikTok post or profile: {text}",
-                        f"link rút gọn không dẫn tới bài đăng hay profile TikTok: {text}"))
-
-
-def parse_target(text: str) -> tuple[str, Optional[str]]:
-    """'user', '@user', a profile link or a video link -> (username, video_id | None)."""
-    raw = resolve_short_link(text.strip())
-    m = re.search(r"tiktok\.com/@([^/?#\s]+)(?:/(?:video|photo)/(\d+))?", raw, re.I)
-    name, vid = (m.group(1), m.group(2)) if m else (raw.lstrip("@"), None)
-    if not re.fullmatch(r"[\w.]{1,64}", name):
-        raise ScrapeError(t(f'not a valid TikTok username: "{text}"', f'không nhận ra username TikTok: "{text}"'))
-    return name, vid
-
-
-def created_at(item: dict) -> datetime:
-    return datetime.fromtimestamp(to_int(item.get("createTime")) or 0, tz=timezone.utc)
-
-
-def base_name(item: dict) -> str:
-    desc = sanitize(item.get("desc", ""))
-    return f"{created_at(item):%Y-%m-%d}_{item['id']}" + (f"_{desc}" if desc else "")
-
-
-# --------------------------------------------------------------------------- #
-# TikTok web client
-# --------------------------------------------------------------------------- #
-
-# Page reads TikTok answers with these HTTP codes are rate-limited: core/pacing.py backs off.
-RATE_LIMIT_CODES = (403, 429)
-
-# TikTok's bot protection (WAF) may answer a page read with a small (~1.4 KB) "Please wait..." page
-# that runs a challenge script (waf-aiso) instead of the real page. We only detect it, never solve it.
-# It does not clear within seconds, so it is not retried; CHALLENGE_STREAK such answers in a row stop
-# the run.
-CHALLENGE_MARKERS = ("_wafchallengeid", "waf-aiso")
-
-
-def is_challenge_page(html: str) -> bool:
-    """True for TikTok's bot-protection challenge page (challenge markers, no embedded page data)."""
-    return any(m in html for m in CHALLENGE_MARKERS) and not REHYDRATION_RE.search(html)
-
-
-def page_data(html: str, scope: str) -> Optional[dict]:
-    """The `scope` object from a page's embedded rehydration JSON, or None."""
-    m = REHYDRATION_RE.search(html)
-    if m:
-        data = json.loads(m.group(1)).get("__DEFAULT_SCOPE__", {}).get(scope)
-        if isinstance(data, dict):
-            return data
-    return None
-
-
-def classify(answer) -> Verdict:
-    """What one TikTok answer means for the run: the HTTP response to a page read, or the
-    ScrapeError a post read failed with (TikTok reports deleted posts inside the page data)."""
-    if isinstance(answer, ScrapeError):
-        return Verdict.PERMANENT if answer.code in PERMANENT_POST_CODES else Verdict.OK
-    if is_challenge_page(answer.text):
-        return Verdict.BLOCKED
-    if answer.status_code in RATE_LIMIT_CODES:
-        return Verdict.RATE_LIMITED
-    return Verdict.OK
-
-
-class TikTok(PageReader):
-    def __init__(self, session_id: Optional[str] = None, wait: float = 0.3, proxy: Optional[str] = None):
-        super().__init__(wait)
-        self.s.headers.update({
-            "User-Agent": UA,
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Referer": "https://www.tiktok.com/",
-        })
-        if proxy:
-            self.s.proxies = {"http": proxy, "https": proxy}
-        # Use the user's own login session (sessionid cookie).
-        if session_id:
-            for name in ("sessionid", "sessionid_ss", "sid_tt"):
-                self.s.cookies.set(name, session_id, domain=".tiktok.com")
-
-    classify = staticmethod(classify)
-
-    def blocked_message(self) -> str:
-        return challenge_message()
-
-    def _scope(self, url: str, scope: str) -> dict:
-        return self.read(url, lambda r: page_data(r.text, scope))
-
-    @staticmethod
-    def _check(data: dict) -> None:
-        code = to_int(data.get("statusCode")) or 0
-        if code:
-            known = STATUS_MESSAGES.get(code)
-            raw = data.get("statusMsg") or ""
-            msg = t(*known) if known else t(f"TikTok returned statusCode {code} {raw}", f"TikTok trả statusCode {code} {raw}")
-            raise ScrapeError(msg.strip(), code)
-
-    def user(self, username: str) -> dict:
-        data = self._scope(f"https://www.tiktok.com/@{username}", "webapp.user-detail")
-        self._check(data)
-        info = data.get("userInfo")
-        if not isinstance(info, dict):
-            raise ScrapeError(t("unexpected page format (no userInfo)",
-                                "trang có định dạng không như dự kiến (thiếu userInfo)"))
-        return info
-
-    def item(self, username: str, video_id: str) -> dict:
-        data = self._scope(f"https://www.tiktok.com/@{username}/video/{video_id}", "webapp.video-detail")
-        self._check(data)
-        info = data.get("itemInfo")
-        item = info.get("itemStruct") if isinstance(info, dict) else None
-        if not isinstance(item, dict) or not item.get("id"):
-            raise ScrapeError(t("unexpected page format (no itemInfo.itemStruct)",
-                                "trang có định dạng không như dự kiến (thiếu itemInfo.itemStruct)"))
-        return item
-
-    def whoami(self) -> Optional[dict]:
-        """The account logged in with the current cookies, or None when logged out.
-
-        With a valid sessionid cookie, TikTok pages embed the user in webapp.app-context.
-        """
-        data = self._scope("https://www.tiktok.com/explore", "webapp.app-context")
-        user = data.get("user") or {}
-        return user if user.get("uniqueId") else None
-
-
-def list_posts(username: str, limit: Optional[int], cookiefile: Optional[str]) -> list[dict]:
-    """Every post of the profile, newest first (yt-dlp TikTokUser extractor)."""
-    import yt_dlp
-
-    class Quiet:
-        def debug(self, msg):
-            m = re.search(r"Downloading page (\d+)", msg)
-            if m:
-                console.status(gray(t(f"  Getting post list... page {m.group(1)}", f"  Đang lấy danh sách bài đăng... trang {m.group(1)}")))
-        info = debug
-
-        def warning(self, msg):
-            pass
-
-        def error(self, msg):
-            console.log(f"  {red(msg)}", err=True)
-
-    opts = {"extract_flat": "in_playlist", "skip_download": True, "logger": Quiet(), "no_warnings": True}
-    if limit:
-        opts["playlistend"] = limit
-    if cookiefile:
-        opts["cookiefile"] = cookiefile
-    try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(f"https://www.tiktok.com/@{username}", download=False)
-    except yt_dlp.utils.DownloadError as e:
-        raise ScrapeError(t(f"yt-dlp could not get the post list ({e}). Try: pip install -U yt-dlp",
-                             f"yt-dlp không lấy được danh sách bài đăng ({e}). Thử: pip install -U yt-dlp"))
-    return [e for e in (info or {}).get("entries") or [] if e and e.get("id")]
-
-
-def write_cookie_file(session_id: str, folder: Path) -> str:
-    path = folder / "session-cookies.txt"
-    exp = int(time.time()) + 30 * 86400
-    rows = [f".tiktok.com\tTRUE\t/\tTRUE\t{exp}\t{n}\t{session_id}" for n in ("sessionid", "sessionid_ss", "sid_tt")]
-    path.write_text("# Netscape HTTP Cookie File\n" + "\n".join(rows) + "\n", encoding="utf-8")
-    return str(path)
-
-
-def list_posts_with_session(username: str, limit: Optional[int], session_id: Optional[str], work: Path) -> list[dict]:
-    """list_posts() with the user's session. The cookie file holds the session ID, so it is
-    deleted as soon as the list is fetched, even when listing fails or is interrupted."""
-    if not session_id:
-        return list_posts(username, limit, None)
-    cookiefile = write_cookie_file(session_id, work)
-    try:
-        return list_posts(username, limit, cookiefile)
-    finally:
-        Path(cookiefile).unlink(missing_ok=True)
-
-
-def resolve_session_id(flag: Optional[str], environ=None) -> Optional[str]:
-    """The session ID from --session-id, else from the TIKTOK_SESSIONID environment variable
-    (which keeps it out of shell history). The flag wins when both are set."""
-    environ = os.environ if environ is None else environ
-    return (flag or "").strip() or (environ.get("TIKTOK_SESSIONID") or "").strip() or None
-
-
-# --------------------------------------------------------------------------- #
-# Metadata
-# --------------------------------------------------------------------------- #
-
-def flatten(item: dict) -> dict:
-    author = item.get("author") or {}
-    music = item.get("music") or {}
-    video = item.get("video") or {}
-    stats = {**(item.get("stats") or {}), **(item.get("statsV2") or {})}
-    extra = item.get("textExtra") or []
-    images = (item.get("imagePost") or {}).get("images") or []
-    subs = video.get("subtitleInfos") or []
-    username = author.get("uniqueId", "")
-    return {
-        "id": item.get("id"),
-        "url": f"https://www.tiktok.com/@{username}/video/{item.get('id')}",
-        "type": "slide" if images else "video",
-        "created": created_at(item).isoformat(),
-        "username": username,
-        "nickname": author.get("nickname"),
-        "author_id": author.get("id"),
-        "author_verified": author.get("verified"),
-        "description": item.get("desc"),
-        "hashtags": " ".join(f"#{tag['hashtagName']}" for tag in extra if tag.get("hashtagName")),
-        "mentions": " ".join(f"@{tag['userUniqueId']}" for tag in extra if tag.get("userUniqueId")),
-        "plays": to_int(stats.get("playCount")),
-        "likes": to_int(stats.get("diggCount")),
-        "comments": to_int(stats.get("commentCount")),
-        "shares": to_int(stats.get("shareCount")),
-        "saves": to_int(stats.get("collectCount")),
-        "reposts": to_int(stats.get("repostCount")),
-        "duration": to_int(video.get("duration")),
-        "width": to_int(video.get("width")),
-        "height": to_int(video.get("height")),
-        "definition": video.get("definition") or video.get("ratio"),
-        "codec": video.get("codecType"),
-        "bitrate": to_int(video.get("bitrate")),
-        "file_size": to_int(video.get("size")),
-        "image_count": len(images) or None,
-        "subtitles": " ".join(s.get("LanguageCodeName", "") for s in subs) or None,
-        "music_id": music.get("id"),
-        "music_title": music.get("title"),
-        "music_author": music.get("authorName"),
-        "music_original": music.get("original"),
-        "music_duration": to_int(music.get("duration")),
-        "location_created": item.get("locationCreated"),
-        "text_language": item.get("textLanguage"),
-        "is_ad": item.get("isAd", False),
-        "is_ai_generated": item.get("IsAigc"),
-        "ai_description": item.get("AIGCDescription") or None,
-        "category_type": item.get("CategoryType"),
-        "diversification_labels": " | ".join(item.get("diversificationLabels") or []) or None,
-        "suggested_words": " | ".join(item.get("suggestedWords") or []) or None,
-        "sticker_texts": " | ".join(text for s in item.get("stickersOnItem") or []
-                                    for text in s.get("stickerText") or []) or None,
-        "effects": " | ".join(e.get("name", "") for e in item.get("effectStickers") or []) or None,
-        "duet_enabled": item.get("duetEnabled", False),
-        "stitch_enabled": item.get("stitchEnabled", False),
-        "share_enabled": item.get("shareEnabled"),
-        "comment_status": item.get("itemCommentStatus"),
-        "private_item": item.get("privateItem"),
-        "pinned": item.get("isPinnedItem"),
-        "schedule_time": item.get("scheduleTime"),
-        "warn_info": json.dumps(item["warnInfo"], ensure_ascii=False) if item.get("warnInfo") else None,
-    }
-
-
-def mux_tags(item: dict) -> dict:
-    """Tags written into the MP4 (readable by Explorer / VLC / MediaInfo)."""
-    f = flatten(item)
-    when = created_at(item)
-    desc = item.get("desc") or ""
-    title = desc.splitlines()[0][:120] if desc.strip() else f"TikTok {item['id']}"
-    comment = [
-        f["url"],
-        f"Views {fmt_int(f['plays'])} · Likes {fmt_int(f['likes'])} · Comments {fmt_int(f['comments'])}"
-        f" · Shares {fmt_int(f['shares'])} · Saves {fmt_int(f['saves'])}",
-    ]
-    if f["music_title"]:
-        comment.append(f"Music: {f['music_title']}" + (f" - {f['music_author']}" if f["music_author"] else ""))
-    if f["hashtags"]:
-        comment.append(f"Hashtags: {f['hashtags']}")
-    return {
-        "title": title,
-        "artist": f"{f['nickname']} (@{f['username']})" if f["nickname"] else f"@{f['username']}",
-        "album_artist": f["nickname"] or f["username"],
-        "album": f"TikTok @{f['username']}",
-        "date": f"{when:%Y-%m-%d}",
-        "creation_time": when.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "description": desc,
-        "synopsis": desc,
-        "comment": "\n".join(comment),
-        "genre": "TikTok",
-        "episode_id": str(item["id"]),
-        "copyright": f"© {f['nickname'] or f['username']}",
-    }
-
+from .core.util import UA
+from .sites import tiktok
 
 # --------------------------------------------------------------------------- #
 # Progress tracking (SQLite)
@@ -421,77 +88,8 @@ class Progress:
 
 
 # --------------------------------------------------------------------------- #
-# Download plan
+# Downloads
 # --------------------------------------------------------------------------- #
-
-class Post:
-    def __init__(self, item: dict, work: Path, opts):
-        self.item = item
-        self.id = str(item["id"])
-        self.base = base_name(item)
-        self.work = work / self.id
-        self.tasks: list[tuple[list[str], Path, dict[str, int]]] = []   # (mirrors, dest, {url: expected size})
-        self.hidden: Optional[str] = None                    # reason when TikTok gives no download link
-        self.permanent = False                               # True when no re-run can ever download it
-        self.incomplete = False                              # every video download came out truncated
-        video = item.get("video") or {}
-        images = (item.get("imagePost") or {}).get("images") or []
-        self.is_slide = bool(images)
-        username = (item.get("author") or {}).get("uniqueId") or "_"
-        self.url = f"https://www.tiktok.com/@{username}/{'photo' if images else 'video'}/{self.id}"
-
-        if self.is_slide:
-            self.images = [self.work / f"img_{i:02d}.jpg" for i in range(1, len(images) + 1)]
-            for img, dest in zip(images, self.images):
-                self.tasks.append((uniq((img.get("imageURL") or {}).get("urlList") or []), dest, {}))
-            play = (item.get("music") or {}).get("playUrl")
-            self.audio = self.work / "audio.mp3" if play else None
-            if play:
-                self.tasks.append(([play], self.audio, {}))
-            return
-
-        # These URLs are NOT mirrors of the same file: www.tiktok.com/aweme/v1/play returns HTML and
-        # downloadAddr is the watermarked version. aria2c uses one URL per attempt, then the next one.
-        struct = video.get("PlayAddrStruct") or {}
-        mirrors = uniq([video.get("playAddr"), *(struct.get("UrlList") or []), video.get("downloadAddr")])
-        mirrors = [u for u in mirrors if "/aweme/v1/play" not in u]
-        if not mirrors:
-            # TikTok withholds the video URL on purpose, typically for ad / TikTok Shop posts.
-            if item.get("isAd") or item.get("isECVideo"):
-                self.permanent = True
-                self.hidden = t("ad / TikTok Shop video: TikTok does not provide a download link on the web "
-                                "(even when logged in)",
-                                "video quảng cáo / TikTok Shop: TikTok không cung cấp link tải qua web "
-                                "(kể cả khi đã đăng nhập)")
-            else:
-                self.hidden = t("TikTok returned no download link for this video (it may be restricted), "
-                                "try again with --session-id",
-                                "TikTok không trả link tải cho video này (có thể bị giới hạn), thử lại với --session-id")
-            return
-        self.video = self.work / "video.mp4"
-        # The reported size describes playAddr / PlayAddrStruct only, not the watermarked downloadAddr.
-        size = to_int(struct.get("DataSize")) or to_int(video.get("size")) or 0
-        sized = {video.get("playAddr"), *(struct.get("UrlList") or [])}
-        self.tasks.append((mirrors, self.video, {u: size for u in mirrors if size and u in sized}))
-
-        cover = video.get("originCover") or video.get("cover")
-        self.cover = self.work / "cover.img" if cover and opts.cover else None
-        if self.cover:
-            self.tasks.append(([cover], self.cover, {}))
-
-        self.subs: list[tuple[Path, str]] = []
-        seen = set()
-        for sub in video.get("subtitleInfos") or [] if opts.subs != "none" else []:
-            lang = (sub.get("LanguageCodeName") or "und").split("-")[0].lower()
-            if not sub.get("Url") or lang in seen:
-                continue
-            if opts.subs == "original" and sub.get("Source") == "MT":
-                continue
-            seen.add(lang)
-            dest = self.work / f"sub_{len(self.subs)}.vtt"
-            self.subs.append((dest, lang))
-            self.tasks.append(([sub["Url"]], dest, {}))
-
 
 def is_valid_file(dest: Path, expected: int = 0) -> bool:
     """Reject "finished" downloads that are really HTML/JSON error pages, or that are smaller than
@@ -659,8 +257,8 @@ def mux_attempts(has_cover: bool, has_subs: bool) -> list[tuple[bool, bool]]:
     return attempts
 
 
-def mux_video(ffmpeg: str, post: Post, out: Path) -> str:
-    tags = tag_args(mux_tags(post.item))
+def mux_video(ffmpeg: str, post: tiktok.Post, out: Path) -> str:
+    tags = tag_args(tiktok.mux_tags(post.item))
     subs = [(p, lang) for p, lang in post.subs if p.exists() and p.stat().st_size]
     cover = post.cover if post.cover and post.cover.exists() and post.cover.stat().st_size else None
 
@@ -696,7 +294,7 @@ def mux_video(ffmpeg: str, post: Post, out: Path) -> str:
     raise ScrapeError(t(f"ffmpeg error: {err}", f"ffmpeg lỗi: {err}"))
 
 
-def mux_slideshow(ffmpeg: str, post: Post, out: Path, seconds: float) -> None:
+def mux_slideshow(ffmpeg: str, post: tiktok.Post, out: Path, seconds: float) -> None:
     images = [p for p in post.images if p.exists() and p.stat().st_size]
     # Each image is its own input (looped for `seconds`), scaled/padded to 1080x1920, then joined.
     # The concat demuxer is not used: images in one post often differ by a few pixels, which makes
@@ -719,15 +317,15 @@ def mux_slideshow(ffmpeg: str, post: Post, out: Path, seconds: float) -> None:
         cmd += ["-map", f"{len(images)}:a", "-c:a", "aac", "-b:a", "192k"]
     cmd += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-r", "30",
             "-t", str(seconds * len(images))]
-    cmd += tag_args(mux_tags(post.item)) + ["-movflags", "+faststart", str(out)]
+    cmd += tag_args(tiktok.mux_tags(post.item)) + ["-movflags", "+faststart", str(out)]
     ok, err = run_ffmpeg(cmd)
     if not ok:
         raise ScrapeError(t(f"ffmpeg could not build the slideshow: {err}", f"ffmpeg không dựng được slideshow: {err}"))
 
 
-def finalize(post: Post, out_dir: Path, ffmpeg: Optional[str], opts) -> tuple[str, int, str]:
+def finalize(post: tiktok.Post, out_dir: Path, ffmpeg: Optional[str], opts) -> tuple[str, int, str]:
     """Mux/move files of one post into out_dir. Returns (main file name, total bytes, note)."""
-    when = created_at(post.item).timestamp()
+    when = tiktok.created_at(post.item).timestamp()
     produced: list[Path] = []
     note = ""
 
@@ -784,32 +382,6 @@ def finalize(post: Post, out_dir: Path, ffmpeg: Optional[str], opts) -> tuple[st
 # Main flow
 # --------------------------------------------------------------------------- #
 
-def save_profile(tt: TikTok, username: str, out_dir: Path) -> Optional[dict]:
-    try:
-        info = tt.user(username)
-    except RateLimited:
-        raise
-    except Challenged as e:
-        # Stop this profile now: the post list (yt-dlp) would only fail with a misleading error.
-        raise Challenged(f"@{username}: {e}") from None
-    except ScrapeError as e:
-        if e.code in FATAL_PROFILE_CODES:
-            raise ScrapeError(f"@{username}: {e}", e.code)
-        console.log(warn(t(f"Could not read profile info ({e}), continuing.",
-                   f"Không đọc được thông tin profile ({e}), vẫn tiếp tục.")))
-        return None
-    (out_dir / "profile.json").write_text(json.dumps(info, ensure_ascii=False, indent=2), encoding="utf-8")
-    avatar = (info.get("user") or {}).get("avatarLarger")
-    if avatar:
-        try:
-            r = tt.s.get(avatar, timeout=20)
-            if r.ok and r.content:
-                (out_dir / "avatar.jpg").write_bytes(r.content)
-        except requests.RequestException:
-            pass
-    return info
-
-
 def write_csv(out_dir: Path) -> int:
     rows = []
     for f in sorted((out_dir / "metadata").glob("*.json")):
@@ -857,17 +429,17 @@ def write_failed_file(progress: Progress, out_dir: Path, username: str, stop_not
 
 
 def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str]) -> int:
-    target = resolve_short_link(target.strip())   # keep the full link: it tells photo posts apart
-    username, single = parse_target(target)
+    target = tiktok.resolve_short_link(target.strip())   # keep the full link: it tells photo posts apart
+    username, single = tiktok.parse_target(target)
     out_dir = Path(opts.output).resolve() / username
     (out_dir / "metadata").mkdir(parents=True, exist_ok=True)
     work = out_dir / ".parts"
     work.mkdir(exist_ok=True)
     (work / "session-cookies.txt").unlink(missing_ok=True)  # left behind by older versions
-    tt = TikTok(opts.session_id, opts.wait, opts.proxy)
+    tt = tiktok.TikTok(opts.session_id, opts.wait, opts.proxy)
 
     console.log("\n" + bold_cyan(f"━━ @{username} ") + gray("━" * max(4, 40 - len(username))))
-    info = save_profile(tt, username, out_dir)
+    info = tiktok.save_profile(tt, username, out_dir)
     if info:
         u, st = info.get("user") or {}, info.get("stats") or {}
         dot = gray(" · ")
@@ -880,7 +452,7 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
         entries = [{"id": single, "url": target}]
     else:
         try:
-            entries = list_posts_with_session(username, opts.limit, opts.session_id, work)
+            entries = tiktok.list_posts_with_session(username, opts.limit, opts.session_id, work)
         finally:
             console.status("")
         found = bold(len(entries))
@@ -953,7 +525,7 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
         with ThreadPoolExecutor(opts.workers) as pool:
             return list(pool.map(fetch, batch))
 
-    def finish(post: Post) -> None:
+    def finish(post: tiktok.Post) -> None:
         if STOP.is_set():
             return
         try:
@@ -992,19 +564,19 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
                 cookie = tt.cookie_header()
                 upcoming = meta_pool.submit(fetch_batch, batches[bi + 1]) if bi + 1 < len(batches) else None
 
-                posts: list[Post] = []
+                posts: list[tiktok.Post] = []
                 for entry, item, err in results:
                     pid = str(entry["id"])
                     if err:
                         reason = t(f"could not read the post page: {err}", f"không đọc được trang bài đăng: {err}")
                         # getattr: err may also be a plain message string, not only a ScrapeError
-                        state = "skipped" if getattr(err, "code", 0) in PERMANENT_POST_CODES else "error"
+                        state = "skipped" if getattr(err, "code", 0) in tiktok.PERMANENT_POST_CODES else "error"
                         progress.mark(pid, state, error=reason, url=post_url(entry))
                         fail(post_url(entry), reason)
                         continue
                     try:
-                        meta = flatten(item)
-                        post = None if opts.metadata_only else Post(item, work, opts)
+                        meta = tiktok.flatten(item)
+                        post = None if opts.metadata_only else tiktok.Post(item, work, opts)
                     except Exception as e:   # odd field types in the post JSON: fail only this post
                         reason = t(f"unexpected page format ({type(e).__name__}: {e})",
                                    f"trang có định dạng không như dự kiến ({type(e).__name__}: {e})")
@@ -1200,7 +772,7 @@ def main() -> None:
     opts.connections = max(1, min(16, opts.connections))
     opts.workers = max(1, min(16, opts.workers))
     opts.batch = max(1, opts.batch)
-    opts.session_id = resolve_session_id(opts.session_id)
+    opts.session_id = tiktok.resolve_session_id(opts.session_id)
     if opts.check_session and not opts.session_id:
         p.error(t("--check-session needs a session ID: set TIKTOK_SESSIONID or add --session-id <sessionid>",
                   "--check-session cần session ID: đặt biến TIKTOK_SESSIONID hoặc thêm --session-id <sessionid>"))
@@ -1210,7 +782,7 @@ def main() -> None:
 
     if opts.session_id:
         try:
-            me = TikTok(opts.session_id, 0, opts.proxy).whoami()
+            me = tiktok.TikTok(opts.session_id, 0, opts.proxy).whoami()
         except ScrapeError as e:
             console.log(bold_red(t("Error: ", "Lỗi: ")) + red(t(f"could not check the session ({e})", f"không kiểm tra được session ({e})")),
                 err=True)

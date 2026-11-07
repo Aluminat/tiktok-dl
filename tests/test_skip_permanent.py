@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from tiktok_dl.core.errors import ScrapeError
+from tiktok_dl.sites import tiktok
 
 USER = "someone"
 
@@ -64,9 +65,9 @@ def run(tdl, tmp_path, monkeypatch):
         (out_dir / f"{post.id}.mp4").write_bytes(b"x")
         return f"{post.id}.mp4", 1, ""
 
-    monkeypatch.setattr(tdl, "TikTok", FakeTikTok)
-    monkeypatch.setattr(tdl, "save_profile", lambda *a: None)
-    monkeypatch.setattr(tdl, "list_posts", lambda *a: [{"id": pid} for pid in behaviours])
+    monkeypatch.setattr(tiktok, "TikTok", FakeTikTok)
+    monkeypatch.setattr(tiktok, "save_profile", lambda *a: None)
+    monkeypatch.setattr(tiktok, "list_posts", lambda *a: [{"id": pid} for pid in behaviours])
     monkeypatch.setattr(tdl, "download_requests", lambda *a: None)
     monkeypatch.setattr(tdl, "finalize", fake_finalize)
 
@@ -145,9 +146,9 @@ def test_plain_string_fetch_error_is_temporary(tdl, tmp_path, run, monkeypatch):
 
 def test_ad_post_is_permanent_but_restricted_is_not(tdl, tmp_path):
     opts = make_opts(tmp_path)
-    assert tdl.Post(no_link_item("1", isAd=True), tmp_path, opts).permanent
-    assert not tdl.Post(no_link_item("1"), tmp_path, opts).permanent
-    assert not tdl.Post(make_item("1"), tmp_path, opts).permanent
+    assert tiktok.Post(no_link_item("1", isAd=True), tmp_path, opts).permanent
+    assert not tiktok.Post(no_link_item("1"), tmp_path, opts).permanent
+    assert not tiktok.Post(make_item("1"), tmp_path, opts).permanent
 
 
 # --------------------------------------------------------------------------- #

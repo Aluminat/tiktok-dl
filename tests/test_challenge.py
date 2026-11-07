@@ -10,6 +10,7 @@ import requests
 from tiktok_dl.core import console, pacing, tools
 from tiktok_dl.core.errors import Challenged, ChallengeStop, RateLimited, ScrapeError
 from tiktok_dl.core.stop import STOP
+from tiktok_dl.sites import tiktok
 
 # Shape of the real challenge page (~1.4 KB): "Please wait...", a _wafchallengeid element and a
 # waf-aiso script, and no embedded page data.
@@ -72,7 +73,7 @@ def logged(tdl, monkeypatch):
 
 def client(tdl, responses):
     """A TikTok client whose page reads return `responses` in order and are counted."""
-    tt = tdl.TikTok(wait=0)
+    tt = tiktok.TikTok(wait=0)
     queue = list(responses)
     tt.requests = 0
 
@@ -85,13 +86,13 @@ def client(tdl, responses):
 
 
 def test_detects_the_challenge_page(tdl):
-    assert tdl.is_challenge_page(CHALLENGE)
-    assert tdl.is_challenge_page('<div class="_wafchallengeid"></div>')
-    assert not tdl.is_challenge_page(PAGE)
-    assert not tdl.is_challenge_page(NO_DATA)
-    assert not tdl.is_challenge_page("<html><body>Please wait...</body></html>")
+    assert tiktok.is_challenge_page(CHALLENGE)
+    assert tiktok.is_challenge_page('<div class="_wafchallengeid"></div>')
+    assert not tiktok.is_challenge_page(PAGE)
+    assert not tiktok.is_challenge_page(NO_DATA)
+    assert not tiktok.is_challenge_page("<html><body>Please wait...</body></html>")
     # A real page that happens to mention a marker still has its data: not a challenge.
-    assert not tdl.is_challenge_page(PAGE + "<!-- waf-aiso -->")
+    assert not tiktok.is_challenge_page(PAGE + "<!-- waf-aiso -->")
 
 
 @pytest.mark.parametrize("status", [200, 403, 429])
@@ -210,7 +211,7 @@ def test_challenged_profile_stops_before_yt_dlp(tdl, tmp_path, site, monkeypatch
     def list_posts(*a, **k):
         raise AssertionError("yt-dlp must not be called")
 
-    monkeypatch.setattr(tdl, "list_posts", list_posts)
+    monkeypatch.setattr(tiktok, "list_posts", list_posts)
     with pytest.raises(Challenged) as e:
         tdl.scrape_profile(f"@{USER}", opts(tmp_path), None, None)
     assert not isinstance(e.value, RateLimited)   # main() moves on to the next profile
@@ -224,7 +225,7 @@ def test_challenged_post_pages_stop_the_run_and_keep_finished_posts(tdl, tmp_pat
     for pid in good:
         site.pages[f"https://www.tiktok.com/@{USER}/video/{pid}"] = post_page(pid)
     site.default = CHALLENGE
-    monkeypatch.setattr(tdl, "list_posts", lambda *a, **k: [{"id": pid} for pid in POST_IDS])
+    monkeypatch.setattr(tiktok, "list_posts", lambda *a, **k: [{"id": pid} for pid in POST_IDS])
 
     with pytest.raises(ChallengeStop):
         tdl.scrape_profile(f"@{USER}", opts(tmp_path), None, None)
@@ -258,7 +259,7 @@ def test_rate_limited_post_pages_stop_the_run_and_rebuild_failed_txt(tdl, tmp_pa
     for pid in good:
         site.pages[f"https://www.tiktok.com/@{USER}/video/{pid}"] = post_page(pid)
     site.default_status = 429
-    monkeypatch.setattr(tdl, "list_posts", lambda *a, **k: [{"id": pid} for pid in POST_IDS])
+    monkeypatch.setattr(tiktok, "list_posts", lambda *a, **k: [{"id": pid} for pid in POST_IDS])
 
     with pytest.raises(RateLimited) as e:
         tdl.scrape_profile(f"@{USER}", opts(tmp_path), None, None)
@@ -307,7 +308,7 @@ def run_main(tdl, monkeypatch, logged):
 
 def test_main_stops_the_run_on_challenge_streak(tdl, run_main, logged):
     def scrape(target):
-        raise ChallengeStop(tdl.challenge_message())
+        raise ChallengeStop(tiktok.challenge_message())
 
     code, tried = run_main(["first", "second"], scrape)
     assert code == 1
@@ -319,7 +320,7 @@ def test_main_stops_the_run_on_challenge_streak(tdl, run_main, logged):
 def test_main_skips_a_challenged_profile_and_goes_on(tdl, run_main, logged):
     def scrape(target):
         if target == "first":
-            raise Challenged(f"@first: {tdl.challenge_message()}")
+            raise Challenged(f"@first: {tiktok.challenge_message()}")
         return 0
 
     code, tried = run_main(["first", "second"], scrape)

@@ -7,33 +7,34 @@ import pytest
 
 from tiktok_dl.core import console
 from tiktok_dl.core.errors import ScrapeError
+from tiktok_dl.sites import tiktok
 
 SECRET = "s3cr3t-session-id"
 
 
 class TestResolveSessionId:
     def test_flag_only(self, tdl):
-        assert tdl.resolve_session_id(SECRET, {}) == SECRET
+        assert tiktok.resolve_session_id(SECRET, {}) == SECRET
 
     def test_env_only(self, tdl):
-        assert tdl.resolve_session_id(None, {"TIKTOK_SESSIONID": SECRET}) == SECRET
+        assert tiktok.resolve_session_id(None, {"TIKTOK_SESSIONID": SECRET}) == SECRET
 
     def test_flag_wins_over_env(self, tdl):
-        assert tdl.resolve_session_id("from-flag", {"TIKTOK_SESSIONID": "from-env"}) == "from-flag"
+        assert tiktok.resolve_session_id("from-flag", {"TIKTOK_SESSIONID": "from-env"}) == "from-flag"
 
     def test_neither(self, tdl):
-        assert tdl.resolve_session_id(None, {}) is None
+        assert tiktok.resolve_session_id(None, {}) is None
 
     def test_blank_values_count_as_unset(self, tdl):
-        assert tdl.resolve_session_id("", {"TIKTOK_SESSIONID": "  "}) is None
-        assert tdl.resolve_session_id("  ", {"TIKTOK_SESSIONID": SECRET}) == SECRET
+        assert tiktok.resolve_session_id("", {"TIKTOK_SESSIONID": "  "}) is None
+        assert tiktok.resolve_session_id("  ", {"TIKTOK_SESSIONID": SECRET}) == SECRET
 
     def test_strips_whitespace(self, tdl):
-        assert tdl.resolve_session_id(None, {"TIKTOK_SESSIONID": f" {SECRET}\n"}) == SECRET
+        assert tiktok.resolve_session_id(None, {"TIKTOK_SESSIONID": f" {SECRET}\n"}) == SECRET
 
     def test_reads_os_environ_by_default(self, tdl, monkeypatch):
         monkeypatch.setenv("TIKTOK_SESSIONID", SECRET)
-        assert tdl.resolve_session_id(None) == SECRET
+        assert tiktok.resolve_session_id(None) == SECRET
 
 
 class TestMainSessionSource:
@@ -50,7 +51,7 @@ class TestMainSessionSource:
             seen.append(self.s.cookies.get("sessionid"))
             return {"uniqueId": "me", "nickName": "Me"}
 
-        monkeypatch.setattr(tdl.TikTok, "whoami", fake_whoami)
+        monkeypatch.setattr(tiktok.TikTok, "whoami", fake_whoami)
 
         def run(*args):
             monkeypatch.setattr(sys, "argv", ["tiktok-dl", "--lang", "en", "--no-color", *args])
@@ -158,8 +159,8 @@ class TestCookieFileCleanup:
                 seen["text"] = fh.read()
             return [{"id": "1"}]
 
-        monkeypatch.setattr(tdl, "list_posts", fake_list_posts)
-        assert tdl.list_posts_with_session("user", None, SECRET, tmp_path) == [{"id": "1"}]
+        monkeypatch.setattr(tiktok, "list_posts", fake_list_posts)
+        assert tiktok.list_posts_with_session("user", None, SECRET, tmp_path) == [{"id": "1"}]
         assert SECRET in seen["text"]  # yt-dlp did get the session
         assert not list(tmp_path.iterdir())
 
@@ -170,9 +171,9 @@ class TestCookieFileCleanup:
                 raise ScrapeError("boom")
             raise KeyboardInterrupt
 
-        monkeypatch.setattr(tdl, "list_posts", fake_list_posts)
+        monkeypatch.setattr(tiktok, "list_posts", fake_list_posts)
         with pytest.raises((ScrapeError, KeyboardInterrupt)):
-            tdl.list_posts_with_session("user", None, SECRET, tmp_path)
+            tiktok.list_posts_with_session("user", None, SECRET, tmp_path)
         assert not list(tmp_path.iterdir())
 
     def test_no_cookie_file_without_session(self, tdl, tmp_path, monkeypatch):
@@ -182,7 +183,7 @@ class TestCookieFileCleanup:
             got["cookiefile"] = cookiefile
             return []
 
-        monkeypatch.setattr(tdl, "list_posts", fake_list_posts)
-        assert tdl.list_posts_with_session("user", 5, None, tmp_path) == []
+        monkeypatch.setattr(tiktok, "list_posts", fake_list_posts)
+        assert tiktok.list_posts_with_session("user", 5, None, tmp_path) == []
         assert got["cookiefile"] is None
         assert not list(tmp_path.iterdir())

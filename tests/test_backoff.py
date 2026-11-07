@@ -8,6 +8,7 @@ import pytest
 
 from tiktok_dl.core import console, pacing
 from tiktok_dl.core.errors import RateLimited, ScrapeError
+from tiktok_dl.sites import tiktok
 
 PAGE = ('<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">'
         + json.dumps({"__DEFAULT_SCOPE__": {"webapp.app-context": {"user": {"uniqueId": "me"}}}})
@@ -51,7 +52,7 @@ def logged(tdl, monkeypatch):
 
 def client(tdl, responses, wait=0.0):
     """A TikTok client whose page reads return `responses` in order; records request times."""
-    tt = tdl.TikTok(wait=wait)
+    tt = tiktok.TikTok(wait=wait)
     queue = list(responses)
     tt.requested_at = []
 
@@ -163,14 +164,14 @@ def test_stop_makes_waiting_reads_give_up(tdl, clock, logged):
 
 
 def test_save_profile_does_not_swallow_rate_limited(tdl, tmp_path, monkeypatch):
-    tt = tdl.TikTok()
+    tt = tiktok.TikTok()
 
     def user(username):
         raise RateLimited("blocked")
 
     monkeypatch.setattr(tt, "user", user)
     with pytest.raises(RateLimited):
-        tdl.save_profile(tt, "someone", tmp_path)
+        tiktok.save_profile(tt, "someone", tmp_path)
 
 
 def test_normal_requests_keep_the_wait_gap(tdl, clock, logged):

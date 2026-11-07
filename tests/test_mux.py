@@ -7,6 +7,7 @@ import pytest
 
 from tiktok_dl.core import console
 from tiktok_dl.core.errors import ScrapeError
+from tiktok_dl.sites import tiktok
 
 
 @pytest.mark.parametrize(
@@ -28,7 +29,7 @@ def test_mux_attempts(tdl, has_cover, has_subs, expected):
 def make_post(tdl, tmp_path, monkeypatch):
     """Build a fake post on disk; the cover and subtitle files exist only when asked for."""
     monkeypatch.setattr(console, "LANG", "en")
-    monkeypatch.setattr(tdl, "mux_tags", lambda item: {"title": "x"})
+    monkeypatch.setattr(tiktok, "mux_tags", lambda item: {"title": "x"})
 
     def make(has_cover: bool, has_subs: bool):
         video = tmp_path / "video.mp4"

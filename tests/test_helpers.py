@@ -6,6 +6,7 @@ import locale
 import pytest
 
 from tiktok_dl.core import console, util
+from tiktok_dl.sites import tiktok
 
 
 @pytest.mark.parametrize(
@@ -59,7 +60,7 @@ def test_uniq(tdl):
     ],
 )
 def test_base_name(tdl, item, expected):
-    assert tdl.base_name(item) == expected
+    assert tiktok.base_name(item) == expected
 
 
 @pytest.mark.parametrize(
