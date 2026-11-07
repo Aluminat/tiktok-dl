@@ -160,7 +160,8 @@ class TikTok(PageReader):
         if code:
             known = STATUS_MESSAGES.get(code)
             raw = data.get("statusMsg") or ""
-            msg = t(*known) if known else t(f"TikTok returned statusCode {code} {raw}", f"TikTok trả statusCode {code} {raw}")
+            msg = t(*known) if known else t(f"TikTok returned statusCode {code} {raw}",
+                                            f"TikTok trả statusCode {code} {raw}")
             raise ScrapeError(msg.strip(), code)
 
     def user(self, username: str) -> dict:
@@ -200,7 +201,8 @@ def list_posts(username: str, limit: Optional[int], cookiefile: Optional[str]) -
         def debug(self, msg):
             m = re.search(r"Downloading page (\d+)", msg)
             if m:
-                console.status(gray(t(f"  Getting post list... page {m.group(1)}", f"  Đang lấy danh sách bài đăng... trang {m.group(1)}")))
+                console.status(gray(t(f"  Getting post list... page {m.group(1)}",
+                                      f"  Đang lấy danh sách bài đăng... trang {m.group(1)}")))
         info = debug
 
         def warning(self, msg):
@@ -402,7 +404,8 @@ def media(item: dict) -> Media:
                          permanent=True)
         return Media(unavailable=t("TikTok returned no download link for this video (it may be restricted), "
                                    "try again with --session-id",
-                                   "TikTok không trả link tải cho video này (có thể bị giới hạn), thử lại với --session-id"))
+                                   "TikTok không trả link tải cho video này (có thể bị giới hạn), "
+                                   "thử lại với --session-id"))
     # The reported size describes playAddr / PlayAddrStruct only, not the watermarked downloadAddr.
     size = to_int(struct.get("DataSize")) or to_int(video.get("size")) or 0
     sized = {video.get("playAddr"), *(struct.get("UrlList") or [])}

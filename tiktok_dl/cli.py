@@ -56,7 +56,8 @@ def main() -> None:
                    help=t("seconds between TikTok page requests (default: 0.3)",
                           "giãn cách giữa các request trang TikTok, giây (mặc định: 0.3)"))
     p.add_argument("--batch", type=int, default=50,
-                   help=t("posts per read-download-mux batch (default: 50)", "số bài mỗi lô đọc-tải-mux (mặc định: 50)"))
+                   help=t("posts per read-download-mux batch (default: 50)",
+                          "số bài mỗi lô đọc-tải-mux (mặc định: 50)"))
     p.add_argument("--mux-jobs", type=int, default=max(1, min(4, (os.cpu_count() or 2) // 2)),
                    help=t("files ffmpeg processes at once", "số file ffmpeg xử lý cùng lúc"))
     p.add_argument("--metadata-only", action="store_true",
@@ -119,7 +120,8 @@ def main() -> None:
         try:
             me = tiktok.TikTok(opts.session_id, 0, opts.proxy).whoami()
         except ScrapeError as e:
-            console.log(bold_red(t("Error: ", "Lỗi: ")) + red(t(f"could not check the session ({e})", f"không kiểm tra được session ({e})")),
+            console.log(bold_red(t("Error: ", "Lỗi: ")) + red(t(f"could not check the session ({e})",
+                                                                 f"không kiểm tra được session ({e})")),
                 err=True)
             sys.exit(1)
         if not me:
@@ -154,8 +156,10 @@ def main() -> None:
                 failed += 1
                 console.log(bold_red(t("Error: ", "Lỗi: ")) + red(str(e)), err=True)
     except ChallengeStop:
-        console.log("\n" + bold_red(t("✗ TikTok's bot protection keeps blocking requests (challenge page), so the run stopped.",
-                               "✗ Lớp chống bot của TikTok liên tục chặn request (trang xác minh) nên tool đã dừng."))
+        console.log("\n" + bold_red(t("✗ TikTok's bot protection keeps blocking requests (challenge page), "
+                                      "so the run stopped.",
+                                      "✗ Lớp chống bot của TikTok liên tục chặn request (trang xác minh) "
+                                      "nên tool đã dừng."))
             + "\n" + yellow(t("  Finished posts are kept. Try again later or from another network (VPN off, a "
                               "different connection) with the same command to continue; --session-id doesn't "
                               "help with this.",
