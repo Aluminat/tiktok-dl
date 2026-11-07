@@ -177,7 +177,8 @@ VIDEO = {
 }
 PHOTO = {
     "id": "7300000000000000002", "createTime": 1700000000, "author": {"uniqueId": "someone"},
-    "imagePost": {"images": [{"imageURL": {"urlList": ["https://cdn/1.jpg", "https://cdn/1b.jpg", "https://cdn/1.jpg"]}},
+    "imagePost": {"images": [{"imageURL": {"urlList": ["https://cdn/1.jpg", "https://cdn/1b.jpg",
+                                                       "https://cdn/1.jpg"]}},
                              {"imageURL": {"urlList": ["https://cdn/2.jpg"]}}]},
     "music": {"playUrl": "https://cdn/music.mp3"},
 }
