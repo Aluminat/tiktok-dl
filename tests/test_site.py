@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from tiktok_dl import cli
-from tiktok_dl.core import download
+from tiktok_dl.core import download, mux
 from tiktok_dl.core.errors import ScrapeError
 from tiktok_dl.core.site import Entry, Verdict
 from tiktok_dl.core.util import UA
@@ -260,3 +260,18 @@ def test_download_of_a_hidden_ad_post(tmp_path):
     assert plan.permanent and "ad / TikTok Shop" in plan.hidden
     assert plan.tasks == []
     assert plan.url == "https://www.tiktok.com/@someone/video/7300000000000000003"
+
+
+def test_muxed_video_gets_the_site_tags(tmp_path, monkeypatch):
+    """Download.tags asks the site for the MP4 tags, and mux_video puts them on the ffmpeg command."""
+    site = tiktok.TikTokSite("someone", None, 0, None)
+    plan = download.Download(tiktok.TikTokPost(VIDEO), tmp_path, plan_opts(cover=False, subs="none"), site)
+    assert plan.tags == tiktok.mux_tags(VIDEO)
+    assert plan.tags   # the sample post has tags to check
+
+    plan.video.parent.mkdir(parents=True)
+    plan.video.write_bytes(b"\0" * 2048)
+    calls = []
+    monkeypatch.setattr(mux, "run_ffmpeg", lambda cmd: (calls.append(cmd), (True, ""))[1])
+    mux.mux_video("ffmpeg", plan, tmp_path / "out.mp4")
+    assert calls and all(arg in calls[0] for arg in mux.tag_args(tiktok.mux_tags(VIDEO)))
