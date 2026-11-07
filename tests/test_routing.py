@@ -119,6 +119,11 @@ def test_tiktok_folder_has_no_site_folder():
     assert tiktok.TikTokSite.folder("some.user") == Path("some.user")
 
 
+def test_instagram_and_facebook_folders():
+    assert instagram.InstagramSite.folder("some.user") == Path("instagram", "some.user")
+    assert facebook.FacebookSite.folder("SomePage") == Path("facebook", "SomePage")
+
+
 def test_run_saves_into_the_site_folder(tmp_path):
     assert flow.run_profile(DemoSite, "https://demo.example/p/42", make_opts(tmp_path), None, None) == 0
     assert (tmp_path / "demo" / "someone" / "metadata" / "42.json").is_file()

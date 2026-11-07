@@ -72,6 +72,36 @@ python tiktok-dl.py @username
 
 File được lưu trong `downloads/<username>/`.
 
+### Trang web và thư mục
+
+Tool tự nhận ra link thuộc trang nào:
+
+| Link | Trang |
+|---|---|
+| `tiktok.com/@username`, `.../video/...`, `.../photo/...`, `vt.tiktok.com/...`, `vm.tiktok.com/...` | TikTok |
+| `instagram.com/<username>`, `.../reel/...`, `.../reels/...`, `.../p/...`, `.../tv/...` (cả `www.` và `m.`) | Instagram |
+| `facebook.com/reel/...`, `.../watch/?v=...`, `.../<page>/videos/...`, `.../<page>/reels/...` (cả `www.`, `m.` và `web.`), `fb.watch/...` | Facebook |
+
+**Instagram và Facebook chưa được hỗ trợ.** Tool nhận ra link của hai trang này, nhưng mỗi link sẽ
+báo lỗi "chưa hỗ trợ" rồi tool chuyển sang mục tiếp theo.
+
+`username` hoặc `@username` không kèm link được hiểu là TikTok. Thêm `--site instagram` hoặc
+`--site facebook` để báo username đó thuộc trang khác (mặc định là `--site tiktok`). Link thuộc
+trang khác với `--site` sẽ báo lỗi, rồi tool chuyển sang mục tiếp theo.
+
+Mỗi tài khoản có một thư mục riêng (Instagram và Facebook sẽ dùng thư mục của mình khi được hỗ trợ):
+
+| Trang | Thư mục |
+|---|---|
+| TikTok | `downloads/<username>/` |
+| Instagram | `downloads/instagram/<username>/` |
+| Facebook | `downloads/facebook/<page>/` |
+
+Link một bài đăng được lưu vào thư mục của tác giả bài đó, nên mỗi tài khoản chỉ có một
+`videos.csv`, một `failed.txt` và một file tiến độ. TikTok không có thư mục `tiktok/` vì trước đây
+tool chỉ tải TikTok: thư mục do các bản cũ tạo vẫn giữ nguyên chỗ, và khi chạy lại tool vẫn bỏ qua
+các bài đã tải trong đó.
+
 Thông báo mặc định bằng **tiếng Anh**, máy cài tiếng Việt thì tự chuyển sang tiếng Việt.
 Dùng `--lang vi` hoặc `--lang en` để tự chọn.
 

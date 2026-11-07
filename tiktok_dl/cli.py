@@ -1,4 +1,5 @@
-"""Command line: the arguments, main(), and scrape_profile(), which picks the site for a target.
+"""Command line: the arguments, main(), and scrape_profile(), which picks the site for a target
+(sites.find_site(): the site of a link, or --site for a username).
 
 The TikTok login flags (--session-id, --check-session) still call the TikTok module directly.
 """
