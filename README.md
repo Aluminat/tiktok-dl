@@ -106,17 +106,33 @@ You only need this for **private accounts you follow** or **age-restricted posts
    (Firefox: **Storage** tab → **Cookies**.)
 4. Type `sessionid` in the filter box.
 5. Double-click the **Value** of the row named exactly `sessionid` and copy it (a long string of letters and numbers).
-6. Check that it works:
+6. Put it in the `TIKTOK_SESSIONID` environment variable (recommended). The commands below ask
+   for the value and you paste it in, so it is not saved in your shell history.
+   It lasts until you close the terminal.
+
+   PowerShell (Windows):
+   ```powershell
+   $env:TIKTOK_SESSIONID = Read-Host "sessionid"
+   ```
+   bash / zsh (Linux, macOS, Git Bash):
    ```bash
-   python tiktok-dl.py --check-session --session-id PASTE_YOUR_SESSIONID_HERE
+   read -rs -p "sessionid: " TIKTOK_SESSIONID && export TIKTOK_SESSIONID
+   ```
+   (zsh: `read -rs "TIKTOK_SESSIONID?sessionid: " && export TIKTOK_SESSIONID`)
+7. Check that it works:
+   ```bash
+   python tiktok-dl.py --check-session
    ```
    - `✓ Session OK: logged in as @your_account` → it works.
    - `✗ Session ID is invalid or expired` → copy a new one.
-7. Download with it:
+8. Download with it:
    ```bash
-   python tiktok-dl.py @username --session-id PASTE_YOUR_SESSIONID_HERE
+   python tiktok-dl.py @username
    ```
    The tool checks the session first and stops if it is not valid.
+
+You can also pass it with `--session-id PASTE_YOUR_SESSIONID_HERE`, but then it is saved in your
+shell history. If both are set, `--session-id` wins.
 
 > [!CAUTION]
 > Your `sessionid` works like your password. **Never share it** or post it online.
@@ -128,7 +144,7 @@ You only need this for **private accounts you follow** or **age-restricted posts
 - **Can't get the post list:** run `pip install -U yt-dlp`
 - **Some posts failed:** see `failed.txt` in the output folder (link + reason for each post), then run the same command again
 - **Ad / TikTok Shop videos fail:** TikTok does not give a download link for these on the web, even when you are logged in. They are listed in `failed.txt` so you can open them yourself, and re-runs skip them (use `--retry-all` to try again)
-- **Private account:** add `--session-id <your sessionid cookie>`
+- **Private account:** set `TIKTOK_SESSIONID` (or add `--session-id`), see [Get your session ID](#get-your-session-id-optional)
 
 ## Contributing
 

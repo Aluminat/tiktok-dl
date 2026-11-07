@@ -543,6 +543,25 @@ def write_cookie_file(session_id: str, folder: Path) -> str:
     return str(path)
 
 
+def list_posts_with_session(username: str, limit: Optional[int], session_id: Optional[str], work: Path) -> list[dict]:
+    """list_posts() with the user's session. The cookie file holds the session ID, so it is
+    deleted as soon as the list is fetched, even when listing fails or is interrupted."""
+    if not session_id:
+        return list_posts(username, limit, None)
+    cookiefile = write_cookie_file(session_id, work)
+    try:
+        return list_posts(username, limit, cookiefile)
+    finally:
+        Path(cookiefile).unlink(missing_ok=True)
+
+
+def resolve_session_id(flag: Optional[str], environ=None) -> Optional[str]:
+    """The session ID from --session-id, else from the TIKTOK_SESSIONID environment variable
+    (which keeps it out of shell history). The flag wins when both are set."""
+    environ = os.environ if environ is None else environ
+    return (flag or "").strip() or (environ.get("TIKTOK_SESSIONID") or "").strip() or None
+
+
 # --------------------------------------------------------------------------- #
 # Metadata
 # --------------------------------------------------------------------------- #
@@ -766,7 +785,9 @@ def is_valid_file(dest: Path) -> bool:
     return True
 
 
-def download_aria2(aria2: str, tasks, cookie: str, jobs: int, conns: int, work: Path, attempt: int) -> None:
+def download_aria2(aria2: str, tasks, cookie: str, jobs: int, conns: int, attempt: int) -> None:
+    # The download list goes to aria2c on stdin, with the cookie as a per-download option, so the
+    # session ID is neither in the command line (visible to other processes) nor in a file on disk.
     lines = []
     for mirrors, dest, _ in tasks:
         if attempt >= len(mirrors) or is_valid_file(dest):
@@ -775,21 +796,21 @@ def download_aria2(aria2: str, tasks, cookie: str, jobs: int, conns: int, work: 
         for leftover in (dest, Path(f"{dest}.aria2")):
             leftover.unlink(missing_ok=True)
         lines += [mirrors[attempt], f"  dir={dest.parent}", f"  out={dest.name}"]
+        if cookie:
+            lines.append(f"  header=Cookie: {cookie}")
     if not lines:
         return
-    inp = work / "aria2-input.txt"
-    inp.write_text("\n".join(lines) + "\n", encoding="utf-8")
     cmd = [
-        aria2, f"--input-file={inp}", f"--max-concurrent-downloads={jobs}",
+        aria2, "--input-file=-", f"--max-concurrent-downloads={jobs}",
         f"--max-connection-per-server={conns}", f"--split={conns}", "--min-split-size=1M",
         "--continue=true", "--allow-overwrite=true", "--auto-file-renaming=false",
         "--file-allocation=none", "--max-tries=5", "--retry-wait=2", "--timeout=30",
         "--connect-timeout=15", "--quiet=true", f"--user-agent={UA}",
-        "--referer=https://www.tiktok.com/", f"--header=Cookie: {cookie}", "--header=Accept: */*",
+        "--referer=https://www.tiktok.com/", "--header=Accept: */*",
     ]
-    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
-        proc.wait()
+        proc.communicate(("\n".join(lines) + "\n").encode("utf-8"))
     except KeyboardInterrupt:
         proc.terminate()
         raise
@@ -1039,6 +1060,7 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
     (out_dir / "metadata").mkdir(parents=True, exist_ok=True)
     work = out_dir / ".parts"
     work.mkdir(exist_ok=True)
+    (work / "session-cookies.txt").unlink(missing_ok=True)  # left behind by older versions
     tt = TikTok(opts.session_id, opts.wait, opts.proxy)
 
     log("\n" + bold_cyan(f"━━ @{username} ") + gray("━" * max(4, 40 - len(username))))
@@ -1054,9 +1076,8 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
     if single:
         entries = [{"id": single}]
     else:
-        cookiefile = write_cookie_file(opts.session_id, work) if opts.session_id else None
         try:
-            entries = list_posts(username, opts.limit, cookiefile)
+            entries = list_posts_with_session(username, opts.limit, opts.session_id, work)
         finally:
             status("")
         found = bold(len(entries))
@@ -1196,7 +1217,7 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
                 try:
                     if aria2:
                         for attempt in range(max((len(t[0]) for t in tasks), default=0)):
-                            download_aria2(aria2, tasks, cookie, opts.jobs, opts.connections, work, attempt)
+                            download_aria2(aria2, tasks, cookie, opts.jobs, opts.connections, attempt)
                         for _, dest, _ in tasks:
                             if not is_valid_file(dest):
                                 dest.unlink(missing_ok=True)
@@ -1311,12 +1332,13 @@ def main() -> None:
                           "thử lại cả những bài không bao giờ tải được (đã xoá, quảng cáo / TikTok Shop) "
                           "mà mặc định các lần chạy lại sẽ bỏ qua"))
     p.add_argument("--session-id",
-                   help=t('your TikTok "sessionid" cookie (age-restricted posts, private accounts you follow)',
+                   help=t('your TikTok "sessionid" cookie (age-restricted posts, private accounts you follow); '
+                          'safer: set the TIKTOK_SESSIONID environment variable instead',
                           'cookie "sessionid" tài khoản TikTok của bạn (bài giới hạn tuổi, '
-                          'tài khoản riêng tư bạn theo dõi)'))
+                          'tài khoản riêng tư bạn theo dõi); an toàn hơn: đặt biến môi trường TIKTOK_SESSIONID'))
     p.add_argument("--check-session", action="store_true",
-                   help=t("only check whether --session-id is logged in, then exit",
-                          "chỉ kiểm tra --session-id có đăng nhập được không rồi thoát"))
+                   help=t("only check whether the session ID is logged in, then exit",
+                          "chỉ kiểm tra session ID có đăng nhập được không rồi thoát"))
     p.add_argument("--proxy", help=t("proxy for TikTok page requests, e.g. http://127.0.0.1:8080",
                                      "proxy cho request trang TikTok, vd http://127.0.0.1:8080"))
     p.add_argument("--lang", choices=("en", "vi"), default=LANG,
@@ -1332,9 +1354,10 @@ def main() -> None:
     opts.connections = max(1, min(16, opts.connections))
     opts.workers = max(1, min(16, opts.workers))
     opts.batch = max(1, opts.batch)
+    opts.session_id = resolve_session_id(opts.session_id)
     if opts.check_session and not opts.session_id:
-        p.error(t("--check-session needs --session-id <sessionid>",
-                  "--check-session cần đi kèm --session-id <sessionid>"))
+        p.error(t("--check-session needs a session ID: set TIKTOK_SESSIONID or add --session-id <sessionid>",
+                  "--check-session cần session ID: đặt biến TIKTOK_SESSIONID hoặc thêm --session-id <sessionid>"))
     if not opts.targets and not opts.check_session:
         p.error(t("enter at least one profile (username, @username or link)",
                   "cần nhập ít nhất một profile (username, @username hoặc link)"))

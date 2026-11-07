@@ -106,17 +106,33 @@ Chỉ cần khi tải **tài khoản riêng tư bạn đang theo dõi** hoặc *
    (Firefox: tab **Storage** → **Cookies**.)
 4. Gõ `sessionid` vào ô lọc (Filter).
 5. Bấm đúp vào cột **Value** của dòng có tên đúng là `sessionid`, rồi copy (là một chuỗi dài gồm chữ và số).
-6. Kiểm tra session có dùng được không:
+6. Lưu nó vào biến môi trường `TIKTOK_SESSIONID` (nên dùng cách này). Các lệnh dưới đây sẽ hỏi
+   giá trị để bạn dán vào, nên nó không bị lưu vào lịch sử lệnh.
+   Biến này có hiệu lực cho tới khi bạn đóng cửa sổ terminal.
+
+   PowerShell (Windows):
+   ```powershell
+   $env:TIKTOK_SESSIONID = Read-Host "sessionid"
+   ```
+   bash / zsh (Linux, macOS, Git Bash):
    ```bash
-   python tiktok-dl.py --check-session --session-id DAN_SESSIONID_VAO_DAY --lang vi
+   read -rs -p "sessionid: " TIKTOK_SESSIONID && export TIKTOK_SESSIONID
+   ```
+   (zsh: `read -rs "TIKTOK_SESSIONID?sessionid: " && export TIKTOK_SESSIONID`)
+7. Kiểm tra session có dùng được không:
+   ```bash
+   python tiktok-dl.py --check-session --lang vi
    ```
    - `✓ Session hợp lệ: đang đăng nhập là @tai_khoan_cua_ban` → dùng được.
    - `✗ Session ID không hợp lệ hoặc đã hết hạn` → copy lại cái mới.
-7. Tải kèm session:
+8. Tải kèm session:
    ```bash
-   python tiktok-dl.py @username --session-id DAN_SESSIONID_VAO_DAY
+   python tiktok-dl.py @username
    ```
    Tool sẽ tự kiểm tra session trước, nếu không hợp lệ thì dừng lại.
+
+Bạn vẫn có thể truyền thẳng bằng `--session-id DAN_SESSIONID_VAO_DAY`, nhưng như vậy nó sẽ bị lưu
+trong lịch sử lệnh. Nếu đặt cả hai thì `--session-id` được ưu tiên.
 
 > [!CAUTION]
 > `sessionid` có tác dụng như mật khẩu. **Tuyệt đối không chia sẻ** hay đăng lên mạng.
@@ -128,7 +144,7 @@ Chỉ cần khi tải **tài khoản riêng tư bạn đang theo dõi** hoặc *
 - **Không lấy được danh sách bài:** chạy `pip install -U yt-dlp`
 - **Vài bài bị lỗi:** xem file `failed.txt` trong thư mục tải (có link và lý do từng bài), rồi chạy lại đúng lệnh cũ
 - **Video quảng cáo / TikTok Shop bị lỗi:** TikTok không cung cấp link tải cho loại video này qua web, kể cả khi đã đăng nhập. Chúng được liệt kê trong `failed.txt` để bạn tự mở xem, và các lần chạy lại sẽ bỏ qua chúng (thêm `--retry-all` để thử lại)
-- **Tài khoản riêng tư:** thêm `--session-id <cookie sessionid của bạn>`
+- **Tài khoản riêng tư:** đặt biến `TIKTOK_SESSIONID` (hoặc thêm `--session-id`), xem [Lấy session ID](#lấy-session-id-không-bắt-buộc)
 
 ## Đóng góp
 
