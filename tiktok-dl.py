@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """tiktok-dl launcher: `python tiktok-dl.py ...` runs the tiktok_dl package next to this file.
 
-The app lives in tiktok_dl/ (see its docstring). aria2c / ffmpeg placed next to this file are
-found first, then PATH.
+The app lives in tiktok_dl/ (see its docstring and docs/adr/0002). aria2c / ffmpeg placed next to
+this file are found first, then PATH.
 """
 from pathlib import Path
 

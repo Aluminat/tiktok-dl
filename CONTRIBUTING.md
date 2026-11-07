@@ -35,19 +35,20 @@ and without aria2c files are downloaded with `requests` (slower).
 
 ## Where things are
 
-Everything lives in **`tiktok-dl.py`**. The docstring at the top of the file explains how a
-download works and has a code map. In short:
+The app is the **`tiktok_dl/`** package; `tiktok-dl.py` only launches it. The docstring in
+`tiktok_dl/__init__.py` explains how a download works and has a code map. In short:
 
-| Part | What it does |
+| File | What it does |
 |---|---|
-| `list_posts()` | Gets the post list of a profile with yt-dlp |
-| `class TikTok` | Reads post / profile pages and their embedded JSON |
-| `flatten()`, `mux_tags()` | Build the CSV row and the MP4 tags |
-| `class Post` | Decides which files a post needs (video, cover, subtitles, images, music) |
-| `download_aria2()` | Downloads files with aria2c |
-| `mux_video()`, `mux_slideshow()` | ffmpeg muxing and photo slideshows |
-| `scrape_profile()` | Main loop: read → download → mux, in overlapping batches |
-| `ProgressBar`, `log()` | Console output and the progress bar |
+| `cli.py` | Arguments and `main()`; `scrape_profile()` picks the site for a target |
+| `core/console.py` | `t()`, colours, `log()`, `status()` and the progress bar |
+| `core/site.py` | The site interface: `Site`, `Post`, `Verdict` |
+| `core/pacing.py` | Page reads: `--wait` gap, backoff on rate limits, streak stops |
+| `core/download.py` | `Download` (which files a post needs), aria2c / requests downloads |
+| `core/mux.py` | ffmpeg muxing and photo slideshows |
+| `core/records.py` | Progress database, `videos.csv`, `failed.txt` |
+| `core/flow.py` | Main loop: read → download → mux, in overlapping batches |
+| `sites/tiktok.py` | Everything TikTok: page reads, post list (yt-dlp), CSV row, MP4 tags |
 
 ## Rules for changes
 
@@ -55,10 +56,14 @@ download works and has a code map. In short:
   If you can't write Vietnamese, put the English text in both and say so in the pull request.
 - **Use the color helpers** (`green()`, `red()`, `yellow()`, `gray()`...) instead of raw ANSI codes,
   so `--no-color` and `NO_COLOR` keep working.
-- **Keep it one file.** All app code lives in `tiktok-dl.py`. `tiktok_dl.py` is only a thin
-  wrapper that makes the script importable for the installed `tiktok-dl` command; don't add code
-  there. The version is `__version__` in `tiktok-dl.py` and nowhere else (`pyproject.toml` reads
-  it). See [docs/adr/0001](docs/adr/0001-single-file-app-with-thin-install-wrapper.md).
+- **Keep the core site-neutral.** Site URLs, page JSON keys and bot-protection markers belong in
+  `tiktok_dl/sites/<site>.py`; the core reaches a site only through `core/site.py`. Don't add
+  code to the launcher `tiktok-dl.py`. The version is `__version__` in `tiktok_dl/__init__.py`
+  and nowhere else (`pyproject.toml` reads it). See
+  [docs/adr/0002](docs/adr/0002-package-with-shared-core-and-site-modules.md).
+- **Call helpers through their module.** Use `console.log(...)`, `console.status(...)`,
+  `download.download_requests(...)` and the like instead of `from ... import log`, so tests can
+  replace them (`tests/test_layout.py` checks this).
 - **Keep the dependencies small.** They are listed in both `requirements.txt` and
   `pyproject.toml`; change both (a test checks that they match).
 - **Comments and commit messages are in English.**
@@ -80,8 +85,9 @@ ruff check .      # lint (settings in ruff.toml)
 pytest            # unit tests in tests/, no network needed
 ```
 
-The tests load `tiktok-dl.py` straight from its file (see `tests/conftest.py`), so there is
-nothing to install or rename. To run them against an installed copy instead, as CI does, install
+The tests import the `tiktok_dl` package from the clone (`tests/conftest.py` puts it first on
+`sys.path`), so there is nothing to install. Patch a function in the module that defines it. To
+run them against an installed copy instead, as CI does, install
 the package (`pip install .`) and run `pytest` with `TIKTOK_DL_TEST_INSTALLED=1` set. They never call TikTok: anything that would use the network is
 mocked, and a test that tries a real HTTP request fails. When you fix a bug, add a test for it.
 
