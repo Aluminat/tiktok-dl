@@ -43,6 +43,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urljoin
 
 import requests
 
@@ -370,9 +371,10 @@ def resolve_short_link(text: str) -> str:
             loc = r.headers.get("Location")
             if not loc:
                 break
-            if re.search(r"tiktok\.com/@[^/?#]+", loc):
-                return loc
-            r = requests.get(loc, headers={"User-Agent": UA}, allow_redirects=False, timeout=20)
+            url = urljoin(url, loc)   # Location may be relative to the current URL
+            if re.search(r"tiktok\.com/@[^/?#]+", url):
+                return url
+            r = requests.get(url, headers={"User-Agent": UA}, allow_redirects=False, timeout=20)
     except requests.RequestException as e:
         raise ScrapeError(t(f"could not open short link {text} ({e})", f"không mở được link rút gọn {text} ({e})"))
     raise ScrapeError(t(f"short link does not lead to a TikTok post or profile: {text}",
@@ -448,7 +450,8 @@ class TikTok:
 
     def _scope(self, url: str, scope: str) -> dict:
         last = t("no response", "không có phản hồi")
-        for attempt in range(4):
+        attempts = 4
+        for attempt in range(attempts):
             self._throttle()
             try:
                 r = self.s.get(url, timeout=25)
@@ -460,7 +463,7 @@ class TikTok:
                 last = t(f"HTTP {r.status_code}, page has no data", f"HTTP {r.status_code}, trang không có dữ liệu")
             except (requests.RequestException, ValueError, AttributeError) as e:
                 last = str(e)
-            if STOP.wait(1 + 2 * attempt):
+            if attempt + 1 >= attempts or STOP.wait(1 + 2 * attempt):   # no wait after the last attempt
                 break
         raise ScrapeError(last)
 
@@ -586,8 +589,8 @@ def flatten(item: dict) -> dict:
         "author_id": author.get("id"),
         "author_verified": author.get("verified"),
         "description": item.get("desc"),
-        "hashtags": " ".join(f"#{t['hashtagName']}" for t in extra if t.get("hashtagName")),
-        "mentions": " ".join(f"@{t['userUniqueId']}" for t in extra if t.get("userUniqueId")),
+        "hashtags": " ".join(f"#{tag['hashtagName']}" for tag in extra if tag.get("hashtagName")),
+        "mentions": " ".join(f"@{tag['userUniqueId']}" for tag in extra if tag.get("userUniqueId")),
         "plays": to_int(stats.get("playCount")),
         "likes": to_int(stats.get("diggCount")),
         "comments": to_int(stats.get("commentCount")),
@@ -616,7 +619,8 @@ def flatten(item: dict) -> dict:
         "category_type": item.get("CategoryType"),
         "diversification_labels": " | ".join(item.get("diversificationLabels") or []) or None,
         "suggested_words": " | ".join(item.get("suggestedWords") or []) or None,
-        "sticker_texts": " | ".join(t for s in item.get("stickersOnItem") or [] for t in s.get("stickerText") or []) or None,
+        "sticker_texts": " | ".join(text for s in item.get("stickersOnItem") or []
+                                    for text in s.get("stickerText") or []) or None,
         "effects": " | ".join(e.get("name", "") for e in item.get("effectStickers") or []) or None,
         "duet_enabled": item.get("duetEnabled", False),
         "stitch_enabled": item.get("stitchEnabled", False),
@@ -697,6 +701,10 @@ class Progress:
         with self.lock:
             return self.db.execute("SELECT id, url, error, status FROM posts WHERE status IN ('error', 'skipped') "
                                    "ORDER BY updated, id").fetchall()
+
+    def close(self) -> None:
+        with self.lock:
+            self.db.close()
 
 
 # --------------------------------------------------------------------------- #
@@ -1139,6 +1147,7 @@ def write_failed_file(progress: Progress, out_dir: Path, username: str) -> int:
 
 
 def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str]) -> int:
+    target = resolve_short_link(target.strip())   # keep the full link: it tells photo posts apart
     username, single = parse_target(target)
     out_dir = Path(opts.output).resolve() / username
     (out_dir / "metadata").mkdir(parents=True, exist_ok=True)
@@ -1158,7 +1167,7 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
             f"{bold(fmt_int(st.get('videoCount')))} {gray(t('posts', 'bài đăng'))}")
 
     if single:
-        entries = [{"id": single}]
+        entries = [{"id": single, "url": target}]
     else:
         try:
             entries = list_posts_with_session(username, opts.limit, opts.session_id, work)
@@ -1190,6 +1199,7 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
         log(green(t("  ✓ Nothing left to download.", "  ✓ Không còn bài nào cần tải.")))
         write_csv(out_dir)
         write_failed_file(progress, out_dir, username)
+        progress.close()
         return 0
     log(gray(t(f"  Processing {n} post{'s' if n != 1 else ''} → ", f"  Bắt đầu xử lý {n} bài → "))
         + blue(str(out_dir)) + "\n")
@@ -1198,8 +1208,10 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
     tally_lock = threading.Lock()
     bar = ProgressBar(n)
 
-    def post_url(pid: str) -> str:
-        return f"https://www.tiktok.com/@{username}/video/{pid}"
+    def post_url(entry: dict) -> str:
+        # Before the post page is read, only a /photo/ link (e.g. the one the user gave) marks a photo post.
+        kind = "photo" if "/photo/" in (entry.get("url") or "").lower() else "video"
+        return f"https://www.tiktok.com/@{username}/{kind}/{entry['id']}"
 
     def succeed(line: str, size: int = 0) -> None:
         with tally_lock:
@@ -1257,6 +1269,7 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
     meta_pool = ThreadPoolExecutor(1)
     mux_pool = ThreadPoolExecutor(opts.mux_jobs)
     mux_futures = []
+    completed = False
     with bar:
         try:
             upcoming = meta_pool.submit(fetch_batch, batches[0])
@@ -1272,8 +1285,8 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
                         reason = t(f"could not read the post page: {err}", f"không đọc được trang bài đăng: {err}")
                         # getattr: err may also be a plain message string, not only a ScrapeError
                         state = "skipped" if getattr(err, "code", 0) in PERMANENT_POST_CODES else "error"
-                        progress.mark(pid, state, error=reason, url=post_url(pid))
-                        fail(post_url(pid), reason)
+                        progress.mark(pid, state, error=reason, url=post_url(entry))
+                        fail(post_url(entry), reason)
                         continue
                     try:
                         meta = flatten(item)
@@ -1281,8 +1294,8 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
                     except Exception as e:   # odd field types in the post JSON: fail only this post
                         reason = t(f"unexpected page format ({type(e).__name__}: {e})",
                                    f"trang có định dạng không như dự kiến ({type(e).__name__}: {e})")
-                        progress.mark(pid, "error", error=reason, url=post_url(pid))
-                        fail(post_url(pid), reason)
+                        progress.mark(pid, "error", error=reason, url=post_url(entry))
+                        fail(post_url(entry), reason)
                         continue
                     meta_path = out_dir / "metadata" / f"{pid}.json"
                     meta_path.write_text(json.dumps({"metadata": meta, "raw": item},
@@ -1299,7 +1312,7 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
                 if not posts:
                     continue
 
-                tasks = [t for p in posts for t in p.tasks]
+                tasks = [task for p in posts for task in p.tasks]
                 bar.downloading(tasks)
                 # Files finished in an earlier run do not count towards the speed.
                 already = sum(d.stat().st_size for _, d, _ in tasks if is_valid_file(d))
@@ -1307,7 +1320,7 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
                 try:
                     if aria2:
                         truncated: set[Path] = set()
-                        for attempt in range(max((len(t[0]) for t in tasks), default=0)):
+                        for attempt in range(max((len(task[0]) for task in tasks), default=0)):
                             truncated |= download_aria2(aria2, tasks, cookie, opts.jobs, opts.connections, attempt)
                         for _, dest, _ in tasks:
                             if not is_valid_file(dest):
@@ -1326,6 +1339,7 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
                 mux_futures += [mux_pool.submit(finish, post) for post in posts]
             for fut in mux_futures:
                 wait_result(fut)
+            completed = True
         except KeyboardInterrupt:
             STOP.set()
             raise
@@ -1333,6 +1347,8 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
             meta_pool.shutdown(wait=False, cancel_futures=True)
             # On Ctrl+C, drop queued mux jobs; running ones were stopped by Ctrl+C too and end quickly.
             mux_pool.shutdown(wait=True, cancel_futures=STOP.is_set())
+            if not completed:
+                progress.close()   # the run is ending with an error: nothing below runs
 
     ok, failed, total_bytes = tally["ok"], tally["failed"], tally["bytes"]
     rows = write_csv(out_dir)
@@ -1340,6 +1356,7 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
         shutil.rmtree(work, ignore_errors=True)
 
     all_failed = write_failed_file(progress, out_dir, username)
+    progress.close()
 
     secs = max(1.0, time.monotonic() - started)
     dot = gray(" · ")
