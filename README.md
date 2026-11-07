@@ -91,7 +91,7 @@ https://www.tiktok.com/@username/video/7705012484368780552
     ad / TikTok Shop video: TikTok does not provide a download link on the web (even when logged in)
 ```
 
-`failed.txt` is updated on every run and removed when nothing fails.
+`failed.txt` is updated on every run and lists every post of the profile that is still failing, including ones from earlier runs (a single-video run does not wipe it). It is removed when nothing fails.
 
 ## Get your session ID (optional)
 
