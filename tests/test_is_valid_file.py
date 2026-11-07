@@ -32,13 +32,13 @@ JPEG = b"\xff\xd8\xff\xe0\x00\x10JFIF" + PAD
         ("music.mp3", b"ID3\x04\x00" + PAD, True),
     ],
 )
-def test_is_valid_file(tdl, tmp_path, name, data, expected):
+def test_is_valid_file(tmp_path, name, data, expected):
     dest = tmp_path / name
     dest.write_bytes(data)
     assert download.is_valid_file(dest) is expected
 
 
-def test_minimum_size(tdl, tmp_path):
+def test_minimum_size(tmp_path):
     dest = tmp_path / "cover.jpg"
     dest.write_bytes(JPEG[:63])
     assert download.is_valid_file(dest) is False
@@ -46,17 +46,17 @@ def test_minimum_size(tdl, tmp_path):
     assert download.is_valid_file(dest) is True
 
 
-def test_missing_file(tdl, tmp_path):
+def test_missing_file(tmp_path):
     assert download.is_valid_file(tmp_path / "missing.mp4") is False
 
 
-def test_directory(tdl, tmp_path):
+def test_directory(tmp_path):
     folder = tmp_path / "video.mp4"
     folder.mkdir()
     assert download.is_valid_file(folder) is False
 
 
-def test_leftover_aria2_control_file(tdl, tmp_path):
+def test_leftover_aria2_control_file(tmp_path):
     # aria2c keeps "<file>.aria2" next to a download until it is complete.
     dest = tmp_path / "video.mp4"
     dest.write_bytes(MP4)

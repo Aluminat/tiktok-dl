@@ -5,7 +5,7 @@ import locale
 
 import pytest
 
-from tiktok_dl.core import console, util
+from tiktok_dl.core import console, download, util
 from tiktok_dl.sites import tiktok
 
 
@@ -25,11 +25,11 @@ from tiktok_dl.sites import tiktok
         (None, ""),
     ],
 )
-def test_sanitize(tdl, text, expected):
+def test_sanitize(text, expected):
     assert util.sanitize(text) == expected
 
 
-def test_sanitize_limit(tdl):
+def test_sanitize_limit():
     assert util.sanitize("x" * 100) == "x" * 60
     assert util.sanitize("abcdef", limit=3) == "abc"
     # Cutting at the limit must not leave a trailing dot or space.
@@ -40,11 +40,11 @@ def test_sanitize_limit(tdl):
     ("value", "expected"),
     [(5, 5), ("5", 5), (" 7 ", 7), (5.9, 5), ("-3", -3), (None, None), ("", None), ("abc", None), ("5.0", None)],
 )
-def test_to_int(tdl, value, expected):
+def test_to_int(value, expected):
     assert util.to_int(value) == expected
 
 
-def test_uniq(tdl):
+def test_uniq():
     assert util.uniq(["b", "a", "b", None, "", "c", "a"]) == ["b", "a", "c"]
     assert util.uniq(x for x in (1, 0, 2, 1)) == [1, 2]
     assert util.uniq([]) == []
@@ -59,8 +59,8 @@ def test_uniq(tdl):
         ({"id": "123"}, "1970-01-01_123"),
     ],
 )
-def test_base_name(tdl, item, expected):
-    assert tiktok.base_name(item) == expected
+def test_base_name(item, expected):
+    assert download.base_name(tiktok.TikTokPost(item)) == expected
 
 
 @pytest.mark.parametrize(
@@ -76,7 +76,7 @@ def test_base_name(tdl, item, expected):
         (1024 ** 4, "1024.0GB"),
     ],
 )
-def test_fmt_bytes(tdl, n, expected):
+def test_fmt_bytes(n, expected):
     assert console.fmt_bytes(n) == expected
 
 
@@ -95,7 +95,7 @@ def test_fmt_bytes(tdl, n, expected):
         (99 * 3600 + 1, "--:--"),
     ],
 )
-def test_fmt_eta(tdl, seconds, expected):
+def test_fmt_eta(seconds, expected):
     assert console.fmt_eta(seconds) == expected
 
 
@@ -112,7 +112,7 @@ def test_fmt_eta(tdl, seconds, expected):
         ("abc", "?"),
     ],
 )
-def test_fmt_int(tdl, value, expected):
+def test_fmt_int(value, expected):
     assert console.fmt_int(value) == expected
 
 
@@ -133,22 +133,22 @@ class TestDetectLang:
             (["@tiktok", "-n", "5"], "en"),
         ],
     )
-    def test_argv(self, tdl, argv, expected):
+    def test_argv(self, argv, expected):
         assert console.detect_lang(argv) == expected
 
-    def test_argv_wins_over_env(self, tdl, monkeypatch):
+    def test_argv_wins_over_env(self, monkeypatch):
         monkeypatch.setenv("TIKTOK_DL_LANG", "vi")
         assert console.detect_lang(["--lang=en"]) == "en"
 
-    def test_lang_flag_without_value_falls_back(self, tdl, monkeypatch):
+    def test_lang_flag_without_value_falls_back(self, monkeypatch):
         monkeypatch.setenv("TIKTOK_DL_LANG", "vi")
         assert console.detect_lang(["--lang"]) == "vi"
 
-    def test_env(self, tdl, monkeypatch):
+    def test_env(self, monkeypatch):
         monkeypatch.setenv("TIKTOK_DL_LANG", "VI")
         assert console.detect_lang([]) == "vi"
 
-    def test_unknown_env_falls_back_to_locale(self, tdl, monkeypatch):
+    def test_unknown_env_falls_back_to_locale(self, monkeypatch):
         monkeypatch.setenv("TIKTOK_DL_LANG", "fr")
         monkeypatch.setattr(locale, "getlocale", lambda *a: ("vi_VN", "UTF-8"))
         assert console.detect_lang([]) == "vi"
@@ -162,11 +162,11 @@ class TestDetectLang:
             ((None, None), "en"),
         ],
     )
-    def test_locale(self, tdl, monkeypatch, loc, expected):
+    def test_locale(self, monkeypatch, loc, expected):
         monkeypatch.setattr(locale, "getlocale", lambda *a: loc)
         assert console.detect_lang([]) == expected
 
-    def test_locale_error(self, tdl, monkeypatch):
+    def test_locale_error(self, monkeypatch):
         def broken(*a):
             raise ValueError("bad locale")
 

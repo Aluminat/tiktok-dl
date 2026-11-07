@@ -1,14 +1,81 @@
-"""Downloads: aria2c (one URL per file per attempt) or plain requests, and checking the files."""
+"""Downloads: which files a post needs (Download), aria2c (one URL per file per attempt) or plain
+requests, and checking the files."""
 from __future__ import annotations
 
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import TYPE_CHECKING, Optional
 
 import requests
 
 from .stop import STOP, wait_result
-from .util import UA
+from .util import UA, sanitize
+
+if TYPE_CHECKING:
+    from .site import Post, Site
+
+
+def base_name(post: Post) -> str:
+    desc = sanitize(post.caption)
+    return f"{post.created:%Y-%m-%d}_{post.id}" + (f"_{desc}" if desc else "")
+
+
+class Download:
+    """Which files one post needs and where they go: video, cover and subtitles, or the images and
+    music of a photo post. The URLs come from the site (Post.media())."""
+
+    def __init__(self, post: Post, work: Path, opts, site: Optional[Site] = None):
+        self.post = post
+        self.site = site                     # gives the MP4 tags (tags); None in tests that only plan
+        self.id = post.id
+        self.base = base_name(post)
+        self.created = post.created          # file times (finalize)
+        self.work = work / self.id
+        self.tasks: list[tuple[list[str], Path, dict[str, int]]] = []   # (mirrors, dest, {url: expected size})
+        self.hidden: Optional[str] = None    # reason when the site gives no download link
+        self.permanent = False               # True when no re-run can ever download it
+        self.incomplete = False              # every video download came out truncated
+        media = post.media()
+        self.is_slide = bool(media.images)
+        self.url = post.link
+
+        if self.is_slide:
+            self.images = [self.work / f"img_{i:02d}.jpg" for i in range(1, len(media.images) + 1)]
+            for urls, dest in zip(media.images, self.images):
+                self.tasks.append((urls, dest, {}))
+            self.audio = self.work / "audio.mp3" if media.audio else None
+            if media.audio:
+                self.tasks.append(([media.audio], self.audio, {}))
+            return
+
+        if not media.video:
+            self.permanent = media.permanent
+            self.hidden = media.unavailable
+            return
+        self.video = self.work / "video.mp4"
+        self.tasks.append((media.video, self.video, media.sizes))
+
+        self.cover = self.work / "cover.img" if media.cover and opts.cover else None
+        if self.cover:
+            self.tasks.append(([media.cover], self.cover, {}))
+
+        self.subs: list[tuple[Path, str]] = []
+        seen = set()
+        for sub in media.subtitles if opts.subs != "none" else []:
+            if not sub.url or sub.lang in seen:
+                continue
+            if opts.subs == "original" and sub.machine:
+                continue
+            seen.add(sub.lang)
+            dest = self.work / f"sub_{len(self.subs)}.vtt"
+            self.subs.append((dest, sub.lang))
+            self.tasks.append(([sub.url], dest, {}))
+
+    @property
+    def tags(self) -> dict:
+        """The MP4 tags (computed when muxing)."""
+        return self.site.mux_tags(self.post)
 
 
 def is_valid_file(dest: Path, expected: int = 0) -> bool:

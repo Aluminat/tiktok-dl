@@ -16,6 +16,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from tiktok_dl import cli
 from tiktok_dl.core import console, download, mux, records, tools
 from tiktok_dl.core.errors import ScrapeError
 from tiktok_dl.core.stop import STOP, wait_result
@@ -26,7 +27,7 @@ BATCH = 4
 
 
 @pytest.fixture(autouse=True)
-def clean_stop(tdl):
+def clean_stop():
     """STOP is module state: never let one test's Ctrl+C leak into another test."""
     STOP.clear()
     # interrupt_main() only raises KeyboardInterrupt when Python's own SIGINT handler is installed.
@@ -47,7 +48,7 @@ def make_opts(tmp_path: Path, **overrides) -> SimpleNamespace:
 
 
 @pytest.fixture
-def profile(tdl, monkeypatch):
+def profile(monkeypatch):
     """A fake profile with N_POSTS videos: no TikTok, no network, no real downloads."""
     calls: list[str] = []
     on_item = {}   # call number -> hook, run inside the metadata worker thread
@@ -86,7 +87,7 @@ def settle(calls: list, seconds: float = 1.0) -> None:
         time.sleep(0.3)
 
 
-def test_ctrl_c_in_download_phase_cancels_queued_mux_jobs(tdl, profile, monkeypatch, tmp_path):
+def test_ctrl_c_in_download_phase_cancels_queued_mux_jobs(profile, monkeypatch, tmp_path):
     started: list[str] = []
     downloads = []
 
@@ -117,7 +118,7 @@ def test_ctrl_c_in_download_phase_cancels_queued_mux_jobs(tdl, profile, monkeypa
 
     t0 = time.monotonic()
     with pytest.raises(KeyboardInterrupt):
-        tdl.scrape_profile("someuser", make_opts(tmp_path), None, None)
+        cli.scrape_profile("someuser", make_opts(tmp_path), None, None)
     assert time.monotonic() - t0 < 3
     assert STOP.is_set()
 
@@ -136,7 +137,7 @@ def test_ctrl_c_in_download_phase_cancels_queued_mux_jobs(tdl, profile, monkeypa
     assert rows == {"1": "done"}
 
 
-def test_ctrl_c_in_metadata_phase_stops_reading(tdl, profile, monkeypatch, tmp_path):
+def test_ctrl_c_in_metadata_phase_stops_reading(profile, monkeypatch, tmp_path):
     monkeypatch.setattr(download, "download_requests", lambda *args: pytest.fail("download must not start"))
     def ctrl_c_during_request():
         # Ctrl+C while the main thread waits for metadata; this request is still in flight.
@@ -147,7 +148,7 @@ def test_ctrl_c_in_metadata_phase_stops_reading(tdl, profile, monkeypatch, tmp_p
 
     t0 = time.monotonic()
     with pytest.raises(KeyboardInterrupt):
-        tdl.scrape_profile("someuser", make_opts(tmp_path), None, None)
+        cli.scrape_profile("someuser", make_opts(tmp_path), None, None)
     assert time.monotonic() - t0 < 3
     assert STOP.is_set()
 
@@ -155,7 +156,7 @@ def test_ctrl_c_in_metadata_phase_stops_reading(tdl, profile, monkeypatch, tmp_p
     assert len(profile.calls) == 2   # posts 3 and 4 of the batch were not read
 
 
-def test_main_exits_130_with_one_stopped_message(tdl, profile, monkeypatch, tmp_path, capsys):
+def test_main_exits_130_with_one_stopped_message(profile, monkeypatch, tmp_path, capsys):
     def fake_download(session, tasks, jobs):
         raise KeyboardInterrupt
 
@@ -166,7 +167,7 @@ def test_main_exits_130_with_one_stopped_message(tdl, profile, monkeypatch, tmp_
     monkeypatch.setattr(sys, "argv", ["tiktok-dl", "someuser", "-o", str(tmp_path), "--lang", "en", "--no-color"])
 
     with pytest.raises(SystemExit) as exc:
-        tdl.main()
+        cli.main()
     assert exc.value.code == 130
     out = capsys.readouterr()
     assert (out.out + out.err).count("Stopped. Run the same command again to continue.") == 1
@@ -192,7 +193,7 @@ class FakeResponse:
             yield chunk
 
 
-def test_download_requests_stops_mid_file_and_removes_partial(tdl, tmp_path):
+def test_download_requests_stops_mid_file_and_removes_partial(tmp_path):
     def slow_chunks():
         yield b"\x00\x00\x00\x20ftypisom" + b"\x00" * 100   # looks like a valid MP4 start
         _thread.interrupt_main()                            # Ctrl+C after the first chunk
@@ -221,14 +222,14 @@ def test_download_requests_stops_mid_file_and_removes_partial(tdl, tmp_path):
     assert not tasks[0][1].exists()
 
 
-def test_run_ffmpeg_does_not_start_after_ctrl_c(tdl, monkeypatch):
+def test_run_ffmpeg_does_not_start_after_ctrl_c(monkeypatch):
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: pytest.fail("ffmpeg must not start"))
     STOP.set()
     with pytest.raises(ScrapeError):
         mux.run_ffmpeg(["ffmpeg", "-version"])
 
 
-def test_mux_video_skips_fallbacks_when_ffmpeg_was_stopped(tdl, monkeypatch, tmp_path):
+def test_mux_video_skips_fallbacks_when_ffmpeg_was_stopped(monkeypatch, tmp_path):
     runs = []
 
     def fake_run(cmd, **kwargs):
@@ -246,7 +247,7 @@ def test_mux_video_skips_fallbacks_when_ffmpeg_was_stopped(tdl, monkeypatch, tmp
     assert len(runs) == 1   # no "cover skipped" retry that could be recorded as done
 
 
-def test_wait_result_returns_value_and_raises_errors(tdl):
+def test_wait_result_returns_value_and_raises_errors():
     from concurrent.futures import ThreadPoolExecutor
 
     with ThreadPoolExecutor(1) as pool:
@@ -255,7 +256,7 @@ def test_wait_result_returns_value_and_raises_errors(tdl):
             wait_result(pool.submit(lambda: int("x")))
 
 
-def test_wait_result_can_be_interrupted(tdl):
+def test_wait_result_can_be_interrupted():
     gate = threading.Event()
     from concurrent.futures import ThreadPoolExecutor
 
@@ -272,7 +273,7 @@ def test_wait_result_can_be_interrupted(tdl):
         pool.shutdown(wait=True)
 
 
-def test_download_aria2_can_be_interrupted(tdl, monkeypatch, tmp_path):
+def test_download_aria2_can_be_interrupted(monkeypatch, tmp_path):
     # A blocking Popen.wait() / communicate() cannot be interrupted by Ctrl+C on Windows, so STOP
     # would stay clear (and mux jobs keep running) until aria2c exits on its own.
     procs = []
@@ -314,7 +315,7 @@ def test_download_aria2_can_be_interrupted(tdl, monkeypatch, tmp_path):
     assert procs[0].input.decode("utf-8").startswith("https://example.invalid/1.mp4\n")
 
 
-def test_mux_video_skips_fallbacks_when_ffmpeg_exits_before_stop_is_set(tdl, monkeypatch, tmp_path):
+def test_mux_video_skips_fallbacks_when_ffmpeg_exits_before_stop_is_set(monkeypatch, tmp_path):
     runs = []
 
     def fake_run(cmd, **kwargs):
@@ -333,7 +334,7 @@ def test_mux_video_skips_fallbacks_when_ffmpeg_exits_before_stop_is_set(tdl, mon
     assert len(runs) == 1   # no "cover skipped" retry that could be recorded as done
 
 
-def test_mux_video_still_falls_back_on_a_real_ffmpeg_error(tdl, monkeypatch, tmp_path):
+def test_mux_video_still_falls_back_on_a_real_ffmpeg_error(monkeypatch, tmp_path):
     codes = [1, 0]
 
     def fake_run(cmd, **kwargs):
@@ -350,7 +351,7 @@ def test_mux_video_still_falls_back_on_a_real_ffmpeg_error(tdl, monkeypatch, tmp
     assert codes == []
 
 
-def test_ctrl_c_rebuilds_failed_txt_and_keeps_partial_downloads(tdl, profile, monkeypatch, tmp_path):
+def test_ctrl_c_rebuilds_failed_txt_and_keeps_partial_downloads(profile, monkeypatch, tmp_path):
     out_dir = tmp_path / "someuser"
     (out_dir / ".parts").mkdir(parents=True)
     partial = out_dir / ".parts" / "video.mp4.aria2"   # a download the next run resumes
@@ -366,7 +367,7 @@ def test_ctrl_c_rebuilds_failed_txt_and_keeps_partial_downloads(tdl, profile, mo
     monkeypatch.setattr(download, "download_requests", fake_download)
     monkeypatch.setattr(mux, "finalize", lambda *args: pytest.fail("no post should be muxed"))
     with pytest.raises(KeyboardInterrupt):
-        tdl.scrape_profile("someuser", make_opts(tmp_path), None, None)
+        cli.scrape_profile("someuser", make_opts(tmp_path), None, None)
 
     failed = (out_dir / "failed.txt").read_text(encoding="utf-8")
     assert "stale" not in failed
@@ -374,7 +375,7 @@ def test_ctrl_c_rebuilds_failed_txt_and_keeps_partial_downloads(tdl, profile, mo
     assert partial.read_bytes() == b"resume data"
 
 
-def test_ctrl_c_removes_failed_txt_when_nothing_fails(tdl, profile, monkeypatch, tmp_path):
+def test_ctrl_c_removes_failed_txt_when_nothing_fails(profile, monkeypatch, tmp_path):
     out_dir = tmp_path / "someuser"
     out_dir.mkdir()
     (out_dir / "failed.txt").write_text("stale list from an earlier run\n", encoding="utf-8")
@@ -385,11 +386,11 @@ def test_ctrl_c_removes_failed_txt_when_nothing_fails(tdl, profile, monkeypatch,
     monkeypatch.setattr(download, "download_requests", fake_download)
     monkeypatch.setattr(mux, "finalize", lambda *args: pytest.fail("no post should be muxed"))
     with pytest.raises(KeyboardInterrupt):
-        tdl.scrape_profile("someuser", make_opts(tmp_path), None, None)
+        cli.scrape_profile("someuser", make_opts(tmp_path), None, None)
     assert not (out_dir / "failed.txt").exists()
 
 
-def test_ctrl_c_still_exits_as_ctrl_c_when_failed_txt_cannot_be_written(tdl, profile, monkeypatch, tmp_path):
+def test_ctrl_c_still_exits_as_ctrl_c_when_failed_txt_cannot_be_written(profile, monkeypatch, tmp_path):
     def locked(*args, **kwargs):
         raise PermissionError("failed.txt is open in another program")
 
@@ -400,4 +401,4 @@ def test_ctrl_c_still_exits_as_ctrl_c_when_failed_txt_cannot_be_written(tdl, pro
     monkeypatch.setattr(download, "download_requests", fake_download)
     monkeypatch.setattr(mux, "finalize", lambda *args: pytest.fail("no post should be muxed"))
     with pytest.raises(KeyboardInterrupt):
-        tdl.scrape_profile("someuser", make_opts(tmp_path), None, None)
+        cli.scrape_profile("someuser", make_opts(tmp_path), None, None)

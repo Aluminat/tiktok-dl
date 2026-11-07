@@ -6,11 +6,14 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from .console import t
 from .errors import ScrapeError
 from .stop import STOP
+
+if TYPE_CHECKING:
+    from .download import Download
 
 
 def run_ffmpeg(cmd: list[str]) -> tuple[bool, str]:
@@ -48,7 +51,7 @@ def mux_attempts(has_cover: bool, has_subs: bool) -> list[tuple[bool, bool]]:
     return attempts
 
 
-def mux_video(ffmpeg: str, post, out: Path) -> str:
+def mux_video(ffmpeg: str, post: Download, out: Path) -> str:
     tags = tag_args(post.tags)
     subs = [(p, lang) for p, lang in post.subs if p.exists() and p.stat().st_size]
     cover = post.cover if post.cover and post.cover.exists() and post.cover.stat().st_size else None
@@ -85,7 +88,7 @@ def mux_video(ffmpeg: str, post, out: Path) -> str:
     raise ScrapeError(t(f"ffmpeg error: {err}", f"ffmpeg lỗi: {err}"))
 
 
-def mux_slideshow(ffmpeg: str, post, out: Path, seconds: float) -> None:
+def mux_slideshow(ffmpeg: str, post: Download, out: Path, seconds: float) -> None:
     images = [p for p in post.images if p.exists() and p.stat().st_size]
     # Each image is its own input (looped for `seconds`), scaled/padded to 1080x1920, then joined.
     # The concat demuxer is not used: images in one post often differ by a few pixels, which makes
@@ -114,7 +117,7 @@ def mux_slideshow(ffmpeg: str, post, out: Path, seconds: float) -> None:
         raise ScrapeError(t(f"ffmpeg could not build the slideshow: {err}", f"ffmpeg không dựng được slideshow: {err}"))
 
 
-def finalize(post, out_dir: Path, ffmpeg: Optional[str], opts) -> tuple[str, int, str]:
+def finalize(post: Download, out_dir: Path, ffmpeg: Optional[str], opts) -> tuple[str, int, str]:
     """Mux/move files of one post into out_dir. Returns (main file name, total bytes, note)."""
     when = post.created.timestamp()
     produced: list[Path] = []

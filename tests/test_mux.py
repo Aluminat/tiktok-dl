@@ -18,14 +18,14 @@ from tiktok_dl.core.errors import ScrapeError
         (False, False, [(False, False)]),
     ],
 )
-def test_mux_attempts(tdl, has_cover, has_subs, expected):
+def test_mux_attempts(has_cover, has_subs, expected):
     attempts = mux.mux_attempts(has_cover, has_subs)
     assert attempts == expected
     assert len(set(attempts)) == len(attempts)
 
 
 @pytest.fixture
-def make_post(tdl, tmp_path, monkeypatch):
+def make_post(tmp_path, monkeypatch):
     """Build a fake post on disk; the cover and subtitle files exist only when asked for."""
     monkeypatch.setattr(console, "LANG", "en")
 
@@ -46,7 +46,7 @@ def make_post(tdl, tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def ffmpeg_calls(tdl, monkeypatch):
+def ffmpeg_calls(monkeypatch):
     """Record every ffmpeg command; succeed on the attempt number in `state["ok_on"]` (1-based)."""
     calls = []
     state = {"ok_on": 1}
@@ -65,7 +65,7 @@ COMBOS = [(True, True), (True, False), (False, True), (False, False)]
 
 
 @pytest.mark.parametrize(("has_cover", "has_subs"), COMBOS)
-def test_all_attempts_fail_are_distinct_and_keep_error(tdl, make_post, ffmpeg_calls, tmp_path, has_cover, has_subs):
+def test_all_attempts_fail_are_distinct_and_keep_error(make_post, ffmpeg_calls, tmp_path, has_cover, has_subs):
     calls, state = ffmpeg_calls
     state["ok_on"] = 0  # never succeed
     post = make_post(has_cover, has_subs)
@@ -77,7 +77,7 @@ def test_all_attempts_fail_are_distinct_and_keep_error(tdl, make_post, ffmpeg_ca
     assert f"boom {len(calls)}" in str(exc.value)
 
 
-def test_no_cover_no_subs_single_attempt(tdl, make_post, ffmpeg_calls, tmp_path):
+def test_no_cover_no_subs_single_attempt(make_post, ffmpeg_calls, tmp_path):
     calls, state = ffmpeg_calls
     state["ok_on"] = 0
     post = make_post(False, False)
@@ -100,7 +100,7 @@ def test_no_cover_no_subs_single_attempt(tdl, make_post, ffmpeg_calls, tmp_path)
         (False, False, 1, ""),
     ],
 )
-def test_note_lists_each_dropped_part_once(tdl, make_post, ffmpeg_calls, tmp_path, has_cover, has_subs, ok_on, note):
+def test_note_lists_each_dropped_part_once(make_post, ffmpeg_calls, tmp_path, has_cover, has_subs, ok_on, note):
     calls, state = ffmpeg_calls
     state["ok_on"] = ok_on
     post = make_post(has_cover, has_subs)
@@ -108,7 +108,7 @@ def test_note_lists_each_dropped_part_once(tdl, make_post, ffmpeg_calls, tmp_pat
     assert len(calls) == ok_on
 
 
-def test_note_in_vietnamese(tdl, make_post, ffmpeg_calls, tmp_path, monkeypatch):
+def test_note_in_vietnamese(make_post, ffmpeg_calls, tmp_path, monkeypatch):
     calls, state = ffmpeg_calls
     state["ok_on"] = 3
     post = make_post(True, True)
@@ -116,7 +116,7 @@ def test_note_in_vietnamese(tdl, make_post, ffmpeg_calls, tmp_path, monkeypatch)
     assert mux.mux_video("ffmpeg", post, tmp_path / "out.mp4") == "bỏ ảnh bìa, bỏ phụ đề"
 
 
-def test_attempt_commands_drop_the_right_inputs(tdl, make_post, ffmpeg_calls, tmp_path):
+def test_attempt_commands_drop_the_right_inputs(make_post, ffmpeg_calls, tmp_path):
     calls, state = ffmpeg_calls
     state["ok_on"] = 0
     post = make_post(True, True)

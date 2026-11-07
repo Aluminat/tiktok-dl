@@ -19,8 +19,8 @@ from ..core import console
 from ..core.console import fmt_int, gray, red, t, warn
 from ..core.errors import Challenged, RateLimited, ScrapeError
 from ..core.pacing import PageReader
-from ..core.site import Verdict
-from ..core.util import UA, sanitize, to_int, uniq
+from ..core.site import Entry, Media, Post, Profile, Site, Subtitle, Verdict
+from ..core.util import UA, to_int, uniq
 
 REHYDRATION_RE = re.compile(
     r'<script[^>]+id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>(.*?)</script>', re.S)
@@ -37,6 +37,7 @@ STATUS_MESSAGES = {
 FATAL_PROFILE_CODES = {10202, 10221, 10222, 10223}
 # Post errors that no re-run can fix: the post is marked "skipped" and not fetched again (see --retry-all).
 PERMANENT_POST_CODES = {10204}
+
 
 def challenge_message() -> str:
     return t("TikTok's bot protection blocked the request (challenge page). Try again later or from another "
@@ -81,11 +82,6 @@ def parse_target(text: str) -> tuple[str, Optional[str]]:
 
 def created_at(item: dict) -> datetime:
     return datetime.fromtimestamp(to_int(item.get("createTime")) or 0, tz=timezone.utc)
-
-
-def base_name(item: dict) -> str:
-    desc = sanitize(item.get("desc", ""))
-    return f"{created_at(item):%Y-%m-%d}_{item['id']}" + (f"_{desc}" if desc else "")
 
 
 def post_link(username: str, post_id: str, kind: str = "video") -> str:
@@ -352,85 +348,6 @@ def mux_tags(item: dict) -> dict:
     }
 
 
-# --------------------------------------------------------------------------- #
-# Download plan
-# --------------------------------------------------------------------------- #
-
-class Post:
-    def __init__(self, item: dict, work: Path, opts):
-        self.item = item
-        self.id = str(item["id"])
-        self.base = base_name(item)
-        self.created = created_at(item)   # file times (finalize)
-        self.work = work / self.id
-        self.tasks: list[tuple[list[str], Path, dict[str, int]]] = []   # (mirrors, dest, {url: expected size})
-        self.hidden: Optional[str] = None                    # reason when TikTok gives no download link
-        self.permanent = False                               # True when no re-run can ever download it
-        self.incomplete = False                              # every video download came out truncated
-        video = item.get("video") or {}
-        images = (item.get("imagePost") or {}).get("images") or []
-        self.is_slide = bool(images)
-        username = (item.get("author") or {}).get("uniqueId") or "_"
-        self.url = f"https://www.tiktok.com/@{username}/{'photo' if images else 'video'}/{self.id}"
-
-        if self.is_slide:
-            self.images = [self.work / f"img_{i:02d}.jpg" for i in range(1, len(images) + 1)]
-            for img, dest in zip(images, self.images):
-                self.tasks.append((uniq((img.get("imageURL") or {}).get("urlList") or []), dest, {}))
-            play = (item.get("music") or {}).get("playUrl")
-            self.audio = self.work / "audio.mp3" if play else None
-            if play:
-                self.tasks.append(([play], self.audio, {}))
-            return
-
-        # These URLs are NOT mirrors of the same file: www.tiktok.com/aweme/v1/play returns HTML and
-        # downloadAddr is the watermarked version. aria2c uses one URL per attempt, then the next one.
-        struct = video.get("PlayAddrStruct") or {}
-        mirrors = uniq([video.get("playAddr"), *(struct.get("UrlList") or []), video.get("downloadAddr")])
-        mirrors = [u for u in mirrors if "/aweme/v1/play" not in u]
-        if not mirrors:
-            # TikTok withholds the video URL on purpose, typically for ad / TikTok Shop posts.
-            if item.get("isAd") or item.get("isECVideo"):
-                self.permanent = True
-                self.hidden = t("ad / TikTok Shop video: TikTok does not provide a download link on the web "
-                                "(even when logged in)",
-                                "video quảng cáo / TikTok Shop: TikTok không cung cấp link tải qua web "
-                                "(kể cả khi đã đăng nhập)")
-            else:
-                self.hidden = t("TikTok returned no download link for this video (it may be restricted), "
-                                "try again with --session-id",
-                                "TikTok không trả link tải cho video này (có thể bị giới hạn), thử lại với --session-id")
-            return
-        self.video = self.work / "video.mp4"
-        # The reported size describes playAddr / PlayAddrStruct only, not the watermarked downloadAddr.
-        size = to_int(struct.get("DataSize")) or to_int(video.get("size")) or 0
-        sized = {video.get("playAddr"), *(struct.get("UrlList") or [])}
-        self.tasks.append((mirrors, self.video, {u: size for u in mirrors if size and u in sized}))
-
-        cover = video.get("originCover") or video.get("cover")
-        self.cover = self.work / "cover.img" if cover and opts.cover else None
-        if self.cover:
-            self.tasks.append(([cover], self.cover, {}))
-
-        self.subs: list[tuple[Path, str]] = []
-        seen = set()
-        for sub in video.get("subtitleInfos") or [] if opts.subs != "none" else []:
-            lang = (sub.get("LanguageCodeName") or "und").split("-")[0].lower()
-            if not sub.get("Url") or lang in seen:
-                continue
-            if opts.subs == "original" and sub.get("Source") == "MT":
-                continue
-            seen.add(lang)
-            dest = self.work / f"sub_{len(self.subs)}.vtt"
-            self.subs.append((dest, lang))
-            self.tasks.append(([sub["Url"]], dest, {}))
-
-    @property
-    def tags(self) -> dict:
-        """The MP4 tags (computed when muxing)."""
-        return mux_tags(self.item)
-
-
 def save_profile(tt: TikTok, username: str, out_dir: Path) -> Optional[dict]:
     try:
         info = tt.user(username)
@@ -455,3 +372,138 @@ def save_profile(tt: TikTok, username: str, out_dir: Path) -> Optional[dict]:
         except requests.RequestException:
             pass
     return info
+
+
+# --------------------------------------------------------------------------- #
+# Posts
+# --------------------------------------------------------------------------- #
+
+def media(item: dict) -> Media:
+    """What a TikTok post offers for download: video mirrors, cover and subtitles, or the images and
+    music of a photo post."""
+    video = item.get("video") or {}
+    images = (item.get("imagePost") or {}).get("images") or []
+    if images:
+        return Media(images=[uniq((img.get("imageURL") or {}).get("urlList") or []) for img in images],
+                     audio=(item.get("music") or {}).get("playUrl"))
+
+    # These URLs are NOT mirrors of the same file: www.tiktok.com/aweme/v1/play returns HTML and
+    # downloadAddr is the watermarked version. aria2c uses one URL per attempt, then the next one.
+    struct = video.get("PlayAddrStruct") or {}
+    mirrors = uniq([video.get("playAddr"), *(struct.get("UrlList") or []), video.get("downloadAddr")])
+    mirrors = [u for u in mirrors if "/aweme/v1/play" not in u]
+    if not mirrors:
+        # TikTok withholds the video URL on purpose, typically for ad / TikTok Shop posts.
+        if item.get("isAd") or item.get("isECVideo"):
+            return Media(unavailable=t("ad / TikTok Shop video: TikTok does not provide a download link on the web "
+                                       "(even when logged in)",
+                                       "video quảng cáo / TikTok Shop: TikTok không cung cấp link tải qua web "
+                                       "(kể cả khi đã đăng nhập)"),
+                         permanent=True)
+        return Media(unavailable=t("TikTok returned no download link for this video (it may be restricted), "
+                                   "try again with --session-id",
+                                   "TikTok không trả link tải cho video này (có thể bị giới hạn), thử lại với --session-id"))
+    # The reported size describes playAddr / PlayAddrStruct only, not the watermarked downloadAddr.
+    size = to_int(struct.get("DataSize")) or to_int(video.get("size")) or 0
+    sized = {video.get("playAddr"), *(struct.get("UrlList") or [])}
+    return Media(video=mirrors, sizes={u: size for u in mirrors if size and u in sized},
+                 cover=video.get("originCover") or video.get("cover"),
+                 subtitles=[Subtitle(sub.get("Url"), (sub.get("LanguageCodeName") or "und").split("-")[0].lower(),
+                                     sub.get("Source") == "MT")
+                            for sub in video.get("subtitleInfos") or []])
+
+
+class TikTokPost(Post):
+    """A TikTok post: `raw` is the itemStruct of its page. Fields are read from it when used."""
+
+    @property
+    def id(self) -> str:
+        return str(self.raw["id"])
+
+    @property
+    def link(self) -> str:
+        images = (self.raw.get("imagePost") or {}).get("images")
+        username = (self.raw.get("author") or {}).get("uniqueId") or "_"
+        return post_link(username, self.id, "photo" if images else "video")
+
+    @property
+    def author(self) -> str:
+        return (self.raw.get("author") or {}).get("uniqueId", "")
+
+    @property
+    def created(self) -> datetime:
+        return created_at(self.raw)
+
+    @property
+    def caption(self):
+        return self.raw.get("desc", "")   # not converted: base_name() fails on odd types as before
+
+    @property
+    def counts(self) -> dict:
+        row = flatten(self.raw)
+        return {key: row[key] for key in ("plays", "likes", "comments", "shares", "saves", "reposts")}
+
+    def media(self) -> Media:
+        return media(self.raw)
+
+
+# --------------------------------------------------------------------------- #
+# The site interface (core/site.py)
+# --------------------------------------------------------------------------- #
+
+TIKTOK_LINK_RE = re.compile(r"^(?:https?://)?(?:[\w-]+\.)*tiktok\.com(?:[/?#]|$)", re.I)
+
+
+class TikTokSite(Site):
+    """TikTok behind the core's site interface. A plain class, not a dataclass: it holds the session
+    ID, which must never show up in a repr."""
+
+    referer = "https://www.tiktok.com/"
+
+    def __init__(self, profile: str, session_id: Optional[str], wait: float, proxy: Optional[str]):
+        self.profile = profile
+        self.session_id = session_id      # for the yt-dlp post list; never printed
+        self.client = TikTok(session_id, wait, proxy)
+
+    @staticmethod
+    def matches(url: str) -> bool:
+        return bool(TIKTOK_LINK_RE.match(url.strip()))
+
+    @staticmethod
+    def parse(target: str) -> tuple[str, Optional[Entry]]:
+        target = resolve_short_link(target.strip())   # keep the full link: it tells photo posts apart
+        username, video_id = parse_target(target)      # resolves nothing again: target is already expanded
+        if not video_id:
+            return username, None
+        kind = "photo" if "/photo/" in target.lower() else "video"
+        return username, Entry(video_id, post_link(username, video_id, kind))
+
+    # The bare names below (save_profile, list_posts_with_session, mux_tags) are the module functions.
+    def save_profile(self, out_dir: Path) -> Optional[Profile]:
+        info = save_profile(self.client, self.profile, out_dir)
+        if not info:                    # None, or an empty userInfo: no header line
+            return None
+        u, st = info.get("user") or {}, info.get("stats") or {}
+        return Profile(u.get("nickname", self.profile), u.get("verified"), st.get("followerCount"),
+                       st.get("heartCount"), st.get("videoCount"))
+
+    def list_posts(self, limit: Optional[int], work: Path) -> list[Entry]:
+        entries = list_posts_with_session(self.profile, limit, self.session_id, work)
+        # Before the post page is read, only a /photo/ link marks a photo post.
+        return [Entry(str(e["id"]), post_link(self.profile, str(e["id"]),
+                                              "photo" if "/photo/" in (e.get("url") or "").lower() else "video"))
+                for e in entries]
+
+    def read_post(self, post_id: str) -> TikTokPost:
+        return TikTokPost(self.client.item(self.profile, post_id))
+
+    def link(self, post_id: str) -> str:
+        return post_link(self.profile, post_id)
+
+    def csv_row(self, post: TikTokPost) -> dict:
+        return flatten(post.raw)
+
+    def mux_tags(self, post: TikTokPost) -> dict:
+        return mux_tags(post.raw)
+
+    classify = staticmethod(classify)

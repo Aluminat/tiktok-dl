@@ -44,12 +44,6 @@ def _import_package() -> None:
 _import_package()
 
 
-@pytest.fixture(scope="session")
-def tdl():
-    """Temporary while the app is split into modules: the names not moved out of cli.py yet."""
-    return sys.modules["tiktok_dl.cli"]
-
-
 @pytest.fixture(autouse=True)
 def no_network(monkeypatch):
     """Fail any test that tries to make a real HTTP request."""

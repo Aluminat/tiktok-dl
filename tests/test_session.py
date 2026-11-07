@@ -5,6 +5,7 @@ import sys
 
 import pytest
 
+from tiktok_dl import cli
 from tiktok_dl.core import console, download
 from tiktok_dl.core.errors import ScrapeError
 from tiktok_dl.sites import tiktok
@@ -13,26 +14,26 @@ SECRET = "s3cr3t-session-id"
 
 
 class TestResolveSessionId:
-    def test_flag_only(self, tdl):
+    def test_flag_only(self):
         assert tiktok.resolve_session_id(SECRET, {}) == SECRET
 
-    def test_env_only(self, tdl):
+    def test_env_only(self):
         assert tiktok.resolve_session_id(None, {"TIKTOK_SESSIONID": SECRET}) == SECRET
 
-    def test_flag_wins_over_env(self, tdl):
+    def test_flag_wins_over_env(self):
         assert tiktok.resolve_session_id("from-flag", {"TIKTOK_SESSIONID": "from-env"}) == "from-flag"
 
-    def test_neither(self, tdl):
+    def test_neither(self):
         assert tiktok.resolve_session_id(None, {}) is None
 
-    def test_blank_values_count_as_unset(self, tdl):
+    def test_blank_values_count_as_unset(self):
         assert tiktok.resolve_session_id("", {"TIKTOK_SESSIONID": "  "}) is None
         assert tiktok.resolve_session_id("  ", {"TIKTOK_SESSIONID": SECRET}) == SECRET
 
-    def test_strips_whitespace(self, tdl):
+    def test_strips_whitespace(self):
         assert tiktok.resolve_session_id(None, {"TIKTOK_SESSIONID": f" {SECRET}\n"}) == SECRET
 
-    def test_reads_os_environ_by_default(self, tdl, monkeypatch):
+    def test_reads_os_environ_by_default(self, monkeypatch):
         monkeypatch.setenv("TIKTOK_SESSIONID", SECRET)
         assert tiktok.resolve_session_id(None) == SECRET
 
@@ -41,7 +42,7 @@ class TestMainSessionSource:
     """--check-session works with the env var alone, and --session-id overrides it."""
 
     @pytest.fixture
-    def run_main(self, tdl, monkeypatch):
+    def run_main(self, monkeypatch):
         # main() sets these module globals; restore them after the test.
         monkeypatch.setattr(console, "LANG", console.LANG)
         monkeypatch.setattr(console, "_COLOR", console._COLOR)
@@ -56,7 +57,7 @@ class TestMainSessionSource:
         def run(*args):
             monkeypatch.setattr(sys, "argv", ["tiktok-dl", "--lang", "en", "--no-color", *args])
             with pytest.raises(SystemExit) as exc:
-                tdl.main()
+                cli.main()
             return exc.value.code, seen
 
         return run
@@ -104,12 +105,12 @@ class FakePopen:
 
 class TestDownloadAria2:
     @pytest.fixture
-    def popen(self, tdl, monkeypatch):
+    def popen(self, monkeypatch):
         FakePopen.calls = []
         monkeypatch.setattr(download.subprocess, "Popen", FakePopen)
         return FakePopen.calls
 
-    def test_cookie_goes_to_stdin_not_argv(self, tdl, tmp_path, popen):
+    def test_cookie_goes_to_stdin_not_argv(self, tmp_path, popen):
         dest = tmp_path / "Thư mục" / "123.mp4"
         cookie = f"sessionid={SECRET}; sid_tt={SECRET}"
         download.download_aria2("aria2c", [(["https://example.com/a.mp4"], dest, None)], cookie, 4, 4, 0)
@@ -127,30 +128,30 @@ class TestDownloadAria2:
         assert "  out=123.mp4" in lines
         assert f"  header=Cookie: {cookie}" in lines
 
-    def test_no_input_file_on_disk(self, tdl, tmp_path, popen):
+    def test_no_input_file_on_disk(self, tmp_path, popen):
         dest = tmp_path / "123.mp4"
         download.download_aria2("aria2c", [(["https://example.com/a.mp4"], dest, None)], f"sessionid={SECRET}", 1, 1, 0)
         files = [p for p in tmp_path.rglob("*") if p.is_file()]
         assert all(SECRET not in p.read_text(encoding="utf-8", errors="replace") for p in files)
         assert not (tmp_path / "aria2-input.txt").exists()
 
-    def test_every_download_gets_the_cookie(self, tdl, tmp_path, popen):
+    def test_every_download_gets_the_cookie(self, tmp_path, popen):
         tasks = [([f"https://example.com/{i}.mp4"], tmp_path / f"{i}.mp4", None) for i in range(3)]
         download.download_aria2("aria2c", tasks, f"sessionid={SECRET}", 1, 1, 0)
         assert popen[0].input.decode("utf-8").count(f"  header=Cookie: sessionid={SECRET}") == 3
 
-    def test_no_cookie_header_when_cookie_empty(self, tdl, tmp_path, popen):
+    def test_no_cookie_header_when_cookie_empty(self, tmp_path, popen):
         download.download_aria2("aria2c", [(["https://example.com/a.mp4"], tmp_path / "a.mp4", None)], "", 1, 1, 0)
         assert "header=Cookie" not in popen[0].input.decode("utf-8")
 
-    def test_nothing_to_do_does_not_start_aria2c(self, tdl, tmp_path, popen):
+    def test_nothing_to_do_does_not_start_aria2c(self, tmp_path, popen):
         # attempt 1 but only one mirror: nothing left to try
         download.download_aria2("aria2c", [(["https://example.com/a.mp4"], tmp_path / "a.mp4", None)], "c=1", 1, 1, 1)
         assert popen == []
 
 
 class TestCookieFileCleanup:
-    def test_deleted_after_success(self, tdl, tmp_path, monkeypatch):
+    def test_deleted_after_success(self, tmp_path, monkeypatch):
         seen = {}
 
         def fake_list_posts(username, limit, cookiefile):
@@ -165,7 +166,7 @@ class TestCookieFileCleanup:
         assert not list(tmp_path.iterdir())
 
     @pytest.mark.parametrize("error", ["scrape", "interrupt"])
-    def test_deleted_after_failure(self, tdl, tmp_path, monkeypatch, error):
+    def test_deleted_after_failure(self, tmp_path, monkeypatch, error):
         def fake_list_posts(username, limit, cookiefile):
             if error == "scrape":
                 raise ScrapeError("boom")
@@ -176,7 +177,7 @@ class TestCookieFileCleanup:
             tiktok.list_posts_with_session("user", None, SECRET, tmp_path)
         assert not list(tmp_path.iterdir())
 
-    def test_no_cookie_file_without_session(self, tdl, tmp_path, monkeypatch):
+    def test_no_cookie_file_without_session(self, tmp_path, monkeypatch):
         got = {}
 
         def fake_list_posts(username, limit, cookiefile):

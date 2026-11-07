@@ -81,27 +81,27 @@ def test_pyproject_matches_requirements():
 # Finding aria2c / ffmpeg
 # --------------------------------------------------------------------------- #
 
-def test_find_tool_prefers_file_next_to_script(tdl, tmp_path, monkeypatch):
+def test_find_tool_prefers_file_next_to_script(tmp_path, monkeypatch):
     (tmp_path / "aria2c.exe").write_bytes(b"")
     monkeypatch.setattr(tools, "SCRIPT_DIR", tmp_path)
     monkeypatch.setattr(tools.shutil, "which", lambda name: "/usr/bin/" + name)
     assert tools.find_tool("aria2c") == str(tmp_path / "aria2c.exe")
 
 
-def test_find_tool_finds_file_without_exe_next_to_script(tdl, tmp_path, monkeypatch):
+def test_find_tool_finds_file_without_exe_next_to_script(tmp_path, monkeypatch):
     (tmp_path / "ffmpeg").write_bytes(b"")
     monkeypatch.setattr(tools, "SCRIPT_DIR", tmp_path)
     monkeypatch.setattr(tools.shutil, "which", lambda name: None)
     assert tools.find_tool("ffmpeg") == str(tmp_path / "ffmpeg")
 
 
-def test_find_tool_falls_back_to_path(tdl, tmp_path, monkeypatch):
+def test_find_tool_falls_back_to_path(tmp_path, monkeypatch):
     monkeypatch.setattr(tools, "SCRIPT_DIR", tmp_path)   # nothing next to the script
     monkeypatch.setattr(tools.shutil, "which", lambda name: "/usr/bin/" + name)
     assert tools.find_tool("aria2c") == "/usr/bin/aria2c"
 
 
-def test_find_ffmpeg_falls_back_to_imageio_ffmpeg(tdl, tmp_path, monkeypatch):
+def test_find_ffmpeg_falls_back_to_imageio_ffmpeg(tmp_path, monkeypatch):
     monkeypatch.setattr(tools, "SCRIPT_DIR", tmp_path)
     monkeypatch.setattr(tools.shutil, "which", lambda name: None)
     fake = types.SimpleNamespace(get_ffmpeg_exe=lambda: "/imageio/ffmpeg")
@@ -109,14 +109,14 @@ def test_find_ffmpeg_falls_back_to_imageio_ffmpeg(tdl, tmp_path, monkeypatch):
     assert tools.find_ffmpeg() == "/imageio/ffmpeg"
 
 
-def test_find_ffmpeg_none_when_nothing_found(tdl, tmp_path, monkeypatch):
+def test_find_ffmpeg_none_when_nothing_found(tmp_path, monkeypatch):
     monkeypatch.setattr(tools, "SCRIPT_DIR", tmp_path)
     monkeypatch.setattr(tools.shutil, "which", lambda name: None)
     monkeypatch.setitem(sys.modules, "imageio_ffmpeg", None)   # import fails
     assert tools.find_ffmpeg() is None
 
 
-def test_script_dir(tdl):
+def test_script_dir():
     if TEST_INSTALLED:
         # An installed copy does not look in the clone; tools come from PATH or imageio-ffmpeg.
         assert tools.SCRIPT_DIR != REPO
@@ -124,7 +124,7 @@ def test_script_dir(tdl):
         assert tools.SCRIPT_DIR == REPO
 
 
-def test_launcher_sets_tools_dir(tdl, tmp_path, monkeypatch):
+def test_launcher_sets_tools_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(tools, "SCRIPT_DIR", tools.SCRIPT_DIR)   # restored afterwards
     copy = tmp_path / "tiktok-dl.py"
     shutil.copyfile(LAUNCHER, copy)
