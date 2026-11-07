@@ -1401,7 +1401,8 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
             fail(post.url, str(e))
             return
         except Exception as e:   # a bug or odd data in one post must not stop the run
-            reason = t(f"unexpected error ({type(e).__name__}: {e})", f"lỗi không lường trước ({type(e).__name__}: {e})")
+            reason = t(f"unexpected error ({type(e).__name__}: {e})",
+                       f"lỗi không lường trước ({type(e).__name__}: {e})")
             progress.mark(post.id, "error", error=reason, url=post.url)
             fail(post.url, reason)
             return
