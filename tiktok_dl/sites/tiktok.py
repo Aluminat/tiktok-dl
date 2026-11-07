@@ -361,6 +361,7 @@ class Post:
         self.item = item
         self.id = str(item["id"])
         self.base = base_name(item)
+        self.created = created_at(item)   # file times (finalize)
         self.work = work / self.id
         self.tasks: list[tuple[list[str], Path, dict[str, int]]] = []   # (mirrors, dest, {url: expected size})
         self.hidden: Optional[str] = None                    # reason when TikTok gives no download link
@@ -423,6 +424,11 @@ class Post:
             dest = self.work / f"sub_{len(self.subs)}.vtt"
             self.subs.append((dest, lang))
             self.tasks.append(([sub["Url"]], dest, {}))
+
+    @property
+    def tags(self) -> dict:
+        """The MP4 tags (computed when muxing)."""
+        return mux_tags(self.item)
 
 
 def save_profile(tt: TikTok, username: str, out_dir: Path) -> Optional[dict]:

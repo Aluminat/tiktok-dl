@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from tiktok_dl.core import download, mux, records
 from tiktok_dl.core.errors import ScrapeError
 from tiktok_dl.sites import tiktok
 
@@ -68,8 +69,8 @@ def run(tdl, tmp_path, monkeypatch):
     monkeypatch.setattr(tiktok, "TikTok", FakeTikTok)
     monkeypatch.setattr(tiktok, "save_profile", lambda *a: None)
     monkeypatch.setattr(tiktok, "list_posts", lambda *a: [{"id": pid} for pid in behaviours])
-    monkeypatch.setattr(tdl, "download_requests", lambda *a: None)
-    monkeypatch.setattr(tdl, "finalize", fake_finalize)
+    monkeypatch.setattr(download, "download_requests", lambda *a: None)
+    monkeypatch.setattr(mux, "finalize", fake_finalize)
 
     def go(**overrides) -> list[str]:
         fetched.clear()
@@ -82,7 +83,7 @@ def run(tdl, tmp_path, monkeypatch):
 
 
 def statuses(tdl, tmp_path) -> dict:
-    progress = tdl.Progress(tmp_path / USER / ".progress.db")
+    progress = records.Progress(tmp_path / USER / ".progress.db")
     try:
         return dict(progress.db.execute("SELECT id, status FROM posts").fetchall())
     finally:

@@ -11,6 +11,7 @@ import requests
 from conftest import LAUNCHER
 
 import tiktok_dl
+from tiktok_dl.core import download, records
 from tiktok_dl.core.errors import ScrapeError
 from tiktok_dl.core.stop import STOP
 from tiktok_dl.sites import tiktok
@@ -103,12 +104,12 @@ def opened_dbs(tdl, monkeypatch):
     """Every Progress opened during the test, and no real profile page reads."""
     opened = []
 
-    class SpyProgress(tdl.Progress):
+    class SpyProgress(records.Progress):
         def __init__(self, path):
             super().__init__(path)
             opened.append(self)
 
-    monkeypatch.setattr(tdl, "Progress", SpyProgress)
+    monkeypatch.setattr(records, "Progress", SpyProgress)
     monkeypatch.setattr(tiktok, "save_profile", lambda tt, username, out_dir: None)
     return opened
 
@@ -185,7 +186,7 @@ def test_progress_db_closed_when_profile_fails(tdl, tmp_path, monkeypatch, opene
     def crash(session, tasks, jobs):
         raise RuntimeError("disk on fire")
 
-    monkeypatch.setattr(tdl, "download_requests", crash)
+    monkeypatch.setattr(download, "download_requests", crash)
     with pytest.raises(RuntimeError, match="disk on fire"):
         tdl.scrape_profile("https://www.tiktok.com/@some.user/video/1", make_opts(tmp_path), None, None)
     assert len(opened_dbs) == 1
@@ -193,11 +194,11 @@ def test_progress_db_closed_when_profile_fails(tdl, tmp_path, monkeypatch, opene
 
 
 def test_progress_close(tdl, tmp_path):
-    progress = tdl.Progress(tmp_path / ".progress.db")
+    progress = records.Progress(tmp_path / ".progress.db")
     progress.mark("1", "done", file="a.mp4")
     progress.close()
     assert is_closed(progress)
-    again = tdl.Progress(tmp_path / ".progress.db")
+    again = records.Progress(tmp_path / ".progress.db")
     try:
         assert again.db.execute("SELECT status FROM posts WHERE id = '1'").fetchone() == ("done",)
     finally:

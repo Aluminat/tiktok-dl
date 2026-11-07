@@ -5,7 +5,7 @@ import sys
 
 import pytest
 
-from tiktok_dl.core import console
+from tiktok_dl.core import console, download
 from tiktok_dl.core.errors import ScrapeError
 from tiktok_dl.sites import tiktok
 
@@ -106,19 +106,19 @@ class TestDownloadAria2:
     @pytest.fixture
     def popen(self, tdl, monkeypatch):
         FakePopen.calls = []
-        monkeypatch.setattr(tdl.subprocess, "Popen", FakePopen)
+        monkeypatch.setattr(download.subprocess, "Popen", FakePopen)
         return FakePopen.calls
 
     def test_cookie_goes_to_stdin_not_argv(self, tdl, tmp_path, popen):
         dest = tmp_path / "Thư mục" / "123.mp4"
         cookie = f"sessionid={SECRET}; sid_tt={SECRET}"
-        tdl.download_aria2("aria2c", [(["https://example.com/a.mp4"], dest, None)], cookie, 4, 4, 0)
+        download.download_aria2("aria2c", [(["https://example.com/a.mp4"], dest, None)], cookie, 4, 4, 0)
 
         assert len(popen) == 1
         call = popen[0]
         assert not any(SECRET in arg for arg in call.args)
         assert "--input-file=-" in call.args
-        assert call.stdin_pipe == tdl.subprocess.PIPE
+        assert call.stdin_pipe == download.subprocess.PIPE
 
         text = call.input.decode("utf-8")
         lines = text.splitlines()
@@ -129,23 +129,23 @@ class TestDownloadAria2:
 
     def test_no_input_file_on_disk(self, tdl, tmp_path, popen):
         dest = tmp_path / "123.mp4"
-        tdl.download_aria2("aria2c", [(["https://example.com/a.mp4"], dest, None)], f"sessionid={SECRET}", 1, 1, 0)
+        download.download_aria2("aria2c", [(["https://example.com/a.mp4"], dest, None)], f"sessionid={SECRET}", 1, 1, 0)
         files = [p for p in tmp_path.rglob("*") if p.is_file()]
         assert all(SECRET not in p.read_text(encoding="utf-8", errors="replace") for p in files)
         assert not (tmp_path / "aria2-input.txt").exists()
 
     def test_every_download_gets_the_cookie(self, tdl, tmp_path, popen):
         tasks = [([f"https://example.com/{i}.mp4"], tmp_path / f"{i}.mp4", None) for i in range(3)]
-        tdl.download_aria2("aria2c", tasks, f"sessionid={SECRET}", 1, 1, 0)
+        download.download_aria2("aria2c", tasks, f"sessionid={SECRET}", 1, 1, 0)
         assert popen[0].input.decode("utf-8").count(f"  header=Cookie: sessionid={SECRET}") == 3
 
     def test_no_cookie_header_when_cookie_empty(self, tdl, tmp_path, popen):
-        tdl.download_aria2("aria2c", [(["https://example.com/a.mp4"], tmp_path / "a.mp4", None)], "", 1, 1, 0)
+        download.download_aria2("aria2c", [(["https://example.com/a.mp4"], tmp_path / "a.mp4", None)], "", 1, 1, 0)
         assert "header=Cookie" not in popen[0].input.decode("utf-8")
 
     def test_nothing_to_do_does_not_start_aria2c(self, tdl, tmp_path, popen):
         # attempt 1 but only one mirror: nothing left to try
-        tdl.download_aria2("aria2c", [(["https://example.com/a.mp4"], tmp_path / "a.mp4", None)], "c=1", 1, 1, 1)
+        download.download_aria2("aria2c", [(["https://example.com/a.mp4"], tmp_path / "a.mp4", None)], "c=1", 1, 1, 1)
         assert popen == []
 
 

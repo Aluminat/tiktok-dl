@@ -7,7 +7,7 @@ import json
 import pytest
 import requests
 
-from tiktok_dl.core import console, pacing, tools
+from tiktok_dl.core import console, pacing, records, tools
 from tiktok_dl.core.errors import Challenged, ChallengeStop, RateLimited, ScrapeError
 from tiktok_dl.core.stop import STOP
 from tiktok_dl.sites import tiktok
@@ -268,7 +268,7 @@ def test_rate_limited_post_pages_stop_the_run_and_rebuild_failed_txt(tdl, tmp_pa
     failed = (out / "failed.txt").read_text(encoding="utf-8")
     assert "stale" not in failed
     assert "stopped early" in failed and "keeps refusing requests (HTTP 429/403)" in failed
-    progress = tdl.Progress(out / ".progress.db")
+    progress = records.Progress(out / ".progress.db")
     try:
         errors = [pid for pid, *_ in progress.failures()]
     finally:

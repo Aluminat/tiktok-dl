@@ -12,6 +12,7 @@ import types
 import pytest
 import requests
 
+from tiktok_dl.core import download, mux
 from tiktok_dl.core.errors import ScrapeError
 from tiktok_dl.sites import tiktok
 
@@ -80,7 +81,7 @@ def run(tdl, tmp_path, monkeypatch):
 
     entries = [{"id": pid} for pid in (GOOD_IDS[0], BAD_ID, GOOD_IDS[1])]
     monkeypatch.setattr(tiktok, "list_posts", lambda username, limit, cookiefile: entries)
-    monkeypatch.setattr(tdl, "download_requests", fake_download)
+    monkeypatch.setattr(download, "download_requests", fake_download)
     opts = types.SimpleNamespace(
         output=str(tmp_path), session_id=None, wait=0, proxy=None, limit=None, metadata_only=False,
         workers=2, batch=50, mux_jobs=1, jobs=2, connections=1, cover=False, subs="none",
@@ -172,14 +173,14 @@ def test_profile_page_without_user_info_warns_and_continues(run, capsys):
 
 def test_unexpected_error_while_finalizing_fails_one_post(tdl, run, monkeypatch, capsys):
     go, out_dir = run
-    real_finalize = tdl.finalize
+    real_finalize = mux.finalize
 
     def flaky_finalize(post, *args, **kwargs):
         if post.id == BAD_ID:
             raise RuntimeError("boom")
         return real_finalize(post, *args, **kwargs)
 
-    monkeypatch.setattr(tdl, "finalize", flaky_finalize)
+    monkeypatch.setattr(mux, "finalize", flaky_finalize)
     failed = go()
     out, err = capsys.readouterr()
 

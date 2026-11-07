@@ -16,7 +16,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from tiktok_dl.core import console, tools
+from tiktok_dl.core import console, download, mux, records, tools
 from tiktok_dl.core.errors import ScrapeError
 from tiktok_dl.core.stop import STOP, wait_result
 from tiktok_dl.sites import tiktok
@@ -110,8 +110,8 @@ def test_ctrl_c_in_download_phase_cancels_queued_mux_jobs(tdl, profile, monkeypa
                 time.sleep(0.01)
             raise KeyboardInterrupt
 
-    monkeypatch.setattr(tdl, "finalize", fake_finalize)
-    monkeypatch.setattr(tdl, "download_requests", fake_download)
+    monkeypatch.setattr(mux, "finalize", fake_finalize)
+    monkeypatch.setattr(download, "download_requests", fake_download)
     # The first read-ahead request of batch 3 is still in flight when Ctrl+C comes.
     profile.on_item[2 * BATCH + 1] = lambda: STOP.wait(2)
 
@@ -130,14 +130,14 @@ def test_ctrl_c_in_download_phase_cancels_queued_mux_jobs(tdl, profile, monkeypa
 
     # The finished post is skipped on the next run, everything else is retried.
     out_dir = tmp_path / "someuser"
-    progress = tdl.Progress(out_dir / ".progress.db")
+    progress = records.Progress(out_dir / ".progress.db")
     rows = dict(progress.db.execute("SELECT id, status FROM posts").fetchall())
     progress.db.close()
     assert rows == {"1": "done"}
 
 
 def test_ctrl_c_in_metadata_phase_stops_reading(tdl, profile, monkeypatch, tmp_path):
-    monkeypatch.setattr(tdl, "download_requests", lambda *args: pytest.fail("download must not start"))
+    monkeypatch.setattr(download, "download_requests", lambda *args: pytest.fail("download must not start"))
     def ctrl_c_during_request():
         # Ctrl+C while the main thread waits for metadata; this request is still in flight.
         _thread.interrupt_main()
@@ -159,8 +159,8 @@ def test_main_exits_130_with_one_stopped_message(tdl, profile, monkeypatch, tmp_
     def fake_download(session, tasks, jobs):
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(tdl, "download_requests", fake_download)
-    monkeypatch.setattr(tdl, "finalize", lambda *args: pytest.fail("no post should be muxed"))
+    monkeypatch.setattr(download, "download_requests", fake_download)
+    monkeypatch.setattr(mux, "finalize", lambda *args: pytest.fail("no post should be muxed"))
     monkeypatch.setattr(tools, "find_tool", lambda name: None)
     monkeypatch.setattr(tools, "find_ffmpeg", lambda: None)
     monkeypatch.setattr(sys, "argv", ["tiktok-dl", "someuser", "-o", str(tmp_path), "--lang", "en", "--no-color"])
@@ -212,7 +212,7 @@ def test_download_requests_stops_mid_file_and_removes_partial(tdl, tmp_path):
     tasks = [([f"https://example.invalid/{i}.mp4"], tmp_path / f"{i}" / "video.mp4", 0) for i in range(3)]
     t0 = time.monotonic()
     with pytest.raises(KeyboardInterrupt):
-        tdl.download_requests(FakeSession(), tasks, 1)
+        download.download_requests(FakeSession(), tasks, 1)
     assert time.monotonic() - t0 < 2
     assert STOP.is_set()
     assert gets == ["https://example.invalid/0.mp4"]   # the queued files were never started
@@ -225,7 +225,7 @@ def test_run_ffmpeg_does_not_start_after_ctrl_c(tdl, monkeypatch):
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: pytest.fail("ffmpeg must not start"))
     STOP.set()
     with pytest.raises(ScrapeError):
-        tdl.run_ffmpeg(["ffmpeg", "-version"])
+        mux.run_ffmpeg(["ffmpeg", "-version"])
 
 
 def test_mux_video_skips_fallbacks_when_ffmpeg_was_stopped(tdl, monkeypatch, tmp_path):
@@ -239,10 +239,10 @@ def test_mux_video_skips_fallbacks_when_ffmpeg_was_stopped(tdl, monkeypatch, tmp
     monkeypatch.setattr(subprocess, "run", fake_run)
     cover = tmp_path / "cover.img"
     cover.write_bytes(b"x" * 10)
-    post = SimpleNamespace(item={"id": "1", "author": {"uniqueId": "u"}}, subs=[], cover=cover,
+    post = SimpleNamespace(tags=tiktok.mux_tags({"id": "1", "author": {"uniqueId": "u"}}), subs=[], cover=cover,
                            video=tmp_path / "video.mp4")
     with pytest.raises(ScrapeError):
-        tdl.mux_video("ffmpeg", post, tmp_path / "out.mp4")
+        mux.mux_video("ffmpeg", post, tmp_path / "out.mp4")
     assert len(runs) == 1   # no "cover skipped" retry that could be recorded as done
 
 
@@ -307,7 +307,7 @@ def test_download_aria2_can_be_interrupted(tdl, monkeypatch, tmp_path):
     threading.Timer(0.2, _thread.interrupt_main).start()
     t0 = time.monotonic()
     with pytest.raises(KeyboardInterrupt):
-        tdl.download_aria2("aria2c", tasks, "", 1, 1, 0)
+        download.download_aria2("aria2c", tasks, "", 1, 1, 0)
     assert time.monotonic() - t0 < 2
     assert STOP.is_set()
     assert procs[0].terminated
@@ -326,10 +326,10 @@ def test_mux_video_skips_fallbacks_when_ffmpeg_exits_before_stop_is_set(tdl, mon
     monkeypatch.setattr(subprocess, "run", fake_run)
     cover = tmp_path / "cover.img"
     cover.write_bytes(b"x" * 10)
-    post = SimpleNamespace(item={"id": "1", "author": {"uniqueId": "u"}}, subs=[], cover=cover,
+    post = SimpleNamespace(tags=tiktok.mux_tags({"id": "1", "author": {"uniqueId": "u"}}), subs=[], cover=cover,
                            video=tmp_path / "video.mp4")
     with pytest.raises(ScrapeError):
-        tdl.mux_video("ffmpeg", post, tmp_path / "out.mp4")
+        mux.mux_video("ffmpeg", post, tmp_path / "out.mp4")
     assert len(runs) == 1   # no "cover skipped" retry that could be recorded as done
 
 
@@ -342,10 +342,10 @@ def test_mux_video_still_falls_back_on_a_real_ffmpeg_error(tdl, monkeypatch, tmp
     monkeypatch.setattr(subprocess, "run", fake_run)
     cover = tmp_path / "cover.img"
     cover.write_bytes(b"x" * 10)
-    post = SimpleNamespace(item={"id": "1", "author": {"uniqueId": "u"}}, subs=[], cover=cover,
+    post = SimpleNamespace(tags=tiktok.mux_tags({"id": "1", "author": {"uniqueId": "u"}}), subs=[], cover=cover,
                            video=tmp_path / "video.mp4")
     t0 = time.monotonic()
-    assert tdl.mux_video("ffmpeg", post, tmp_path / "out.mp4") == console.t("cover skipped", "bỏ ảnh bìa")
+    assert mux.mux_video("ffmpeg", post, tmp_path / "out.mp4") == console.t("cover skipped", "bỏ ảnh bìa")
     assert time.monotonic() - t0 < 0.5   # no wait for STOP on an ordinary error
     assert codes == []
 
@@ -356,15 +356,15 @@ def test_ctrl_c_rebuilds_failed_txt_and_keeps_partial_downloads(tdl, profile, mo
     partial = out_dir / ".parts" / "video.mp4.aria2"   # a download the next run resumes
     partial.write_bytes(b"resume data")
     (out_dir / "failed.txt").write_text("stale list from an earlier run\n", encoding="utf-8")
-    progress = tdl.Progress(out_dir / ".progress.db")
+    progress = records.Progress(out_dir / ".progress.db")
     progress.mark("99", "error", error="network error", url="https://www.tiktok.com/@someuser/video/99")
     progress.close()
 
     def fake_download(session, tasks, jobs):
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(tdl, "download_requests", fake_download)
-    monkeypatch.setattr(tdl, "finalize", lambda *args: pytest.fail("no post should be muxed"))
+    monkeypatch.setattr(download, "download_requests", fake_download)
+    monkeypatch.setattr(mux, "finalize", lambda *args: pytest.fail("no post should be muxed"))
     with pytest.raises(KeyboardInterrupt):
         tdl.scrape_profile("someuser", make_opts(tmp_path), None, None)
 
@@ -382,8 +382,8 @@ def test_ctrl_c_removes_failed_txt_when_nothing_fails(tdl, profile, monkeypatch,
     def fake_download(session, tasks, jobs):
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(tdl, "download_requests", fake_download)
-    monkeypatch.setattr(tdl, "finalize", lambda *args: pytest.fail("no post should be muxed"))
+    monkeypatch.setattr(download, "download_requests", fake_download)
+    monkeypatch.setattr(mux, "finalize", lambda *args: pytest.fail("no post should be muxed"))
     with pytest.raises(KeyboardInterrupt):
         tdl.scrape_profile("someuser", make_opts(tmp_path), None, None)
     assert not (out_dir / "failed.txt").exists()
@@ -396,8 +396,8 @@ def test_ctrl_c_still_exits_as_ctrl_c_when_failed_txt_cannot_be_written(tdl, pro
     def fake_download(session, tasks, jobs):
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(tdl, "write_failed_file", locked)
-    monkeypatch.setattr(tdl, "download_requests", fake_download)
-    monkeypatch.setattr(tdl, "finalize", lambda *args: pytest.fail("no post should be muxed"))
+    monkeypatch.setattr(records, "write_failed_file", locked)
+    monkeypatch.setattr(download, "download_requests", fake_download)
+    monkeypatch.setattr(mux, "finalize", lambda *args: pytest.fail("no post should be muxed"))
     with pytest.raises(KeyboardInterrupt):
         tdl.scrape_profile("someuser", make_opts(tmp_path), None, None)

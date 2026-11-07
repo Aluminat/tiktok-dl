@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from tiktok_dl.core import console
+from tiktok_dl.core import console, download
 from tiktok_dl.sites import tiktok
 
 MP4 = b"\x00\x00\x00\x20ftypisom\x00\x00\x02\x00" + b"\x00" * 2000
@@ -44,26 +44,26 @@ def english(tdl, monkeypatch):
 def test_is_valid_file_expected_size(tdl, tmp_path, data, expected, valid):
     dest = tmp_path / "video.mp4"
     dest.write_bytes(data)
-    assert tdl.is_valid_file(dest, expected) is valid
+    assert download.is_valid_file(dest, expected) is valid
 
 
 @pytest.mark.parametrize(("name", "data"), [("cover.img", JPEG), ("sub_0.vtt", VTT), ("audio.mp3", b"ID3" + JPEG)])
 def test_unknown_size_files_validate_as_before(tdl, tmp_path, name, data):
     dest = tmp_path / name
     dest.write_bytes(data)
-    assert tdl.is_valid_file(dest, 0) is tdl.is_valid_file(dest) is True
+    assert download.is_valid_file(dest, 0) is download.is_valid_file(dest) is True
 
 
 def test_is_truncated(tdl, tmp_path):
     dest = tmp_path / "video.mp4"
-    assert tdl.is_truncated(dest, SIZE) is False  # missing
+    assert download.is_truncated(dest, SIZE) is False  # missing
     dest.write_bytes(SHORT)
-    assert tdl.is_truncated(dest, SIZE) is True
-    assert tdl.is_truncated(dest, 0) is False  # unknown size
+    assert download.is_truncated(dest, SIZE) is True
+    assert download.is_truncated(dest, 0) is False  # unknown size
     dest.write_bytes(MP4)
-    assert tdl.is_truncated(dest, SIZE) is False
+    assert download.is_truncated(dest, SIZE) is False
     dest.write_bytes(HTML)
-    assert tdl.is_truncated(dest, SIZE) is False  # error page, not a truncation
+    assert download.is_truncated(dest, SIZE) is False  # error page, not a truncation
 
 
 def opts(tmp_path, **kw):
@@ -139,7 +139,7 @@ class FakeSession:
 def test_requests_retries_truncated_download(tdl, tmp_path):
     dest = tmp_path / "p" / "video.mp4"
     session = FakeSession({A: [SHORT, MP4]})
-    truncated = tdl.download_requests(session, [([A], dest, {A: SIZE})], 1)
+    truncated = download.download_requests(session, [([A], dest, {A: SIZE})], 1)
     assert session.calls == [A] * 2
     assert dest.read_bytes() == MP4
     assert dest in truncated  # it was cut short once, but the file is complete now
@@ -148,7 +148,7 @@ def test_requests_retries_truncated_download(tdl, tmp_path):
 def test_requests_tries_next_mirror_after_truncated(tdl, tmp_path):
     dest = tmp_path / "p" / "video.mp4"
     session = FakeSession({A: [SHORT], B: [MP4]})
-    tdl.download_requests(session, [([A, B], dest, SIZED)], 1)
+    download.download_requests(session, [([A, B], dest, SIZED)], 1)
     assert session.calls == [A] * 3 + [B]
     assert dest.read_bytes() == MP4
 
@@ -156,7 +156,7 @@ def test_requests_tries_next_mirror_after_truncated(tdl, tmp_path):
 def test_requests_deletes_truncated_download(tdl, tmp_path):
     dest = tmp_path / "p" / "video.mp4"
     session = FakeSession({A: [SHORT], B: [SHORT]})
-    truncated = tdl.download_requests(session, [([A, B], dest, SIZED)], 1)
+    truncated = download.download_requests(session, [([A, B], dest, SIZED)], 1)
     assert not dest.exists()
     assert truncated == {dest}
 
@@ -164,7 +164,7 @@ def test_requests_deletes_truncated_download(tdl, tmp_path):
 def test_requests_unknown_size_keeps_short_file(tdl, tmp_path):
     dest = tmp_path / "p" / "video.mp4"
     session = FakeSession({A: [SHORT]})
-    truncated = tdl.download_requests(session, [([A], dest, {})], 1)
+    truncated = download.download_requests(session, [([A], dest, {})], 1)
     assert session.calls == [A]
     assert dest.read_bytes() == SHORT
     assert truncated == set()
@@ -173,7 +173,7 @@ def test_requests_unknown_size_keeps_short_file(tdl, tmp_path):
 def test_requests_error_page_is_not_truncation(tdl, tmp_path):
     dest = tmp_path / "p" / "video.mp4"
     session = FakeSession({A: [HTML]})
-    truncated = tdl.download_requests(session, [([A], dest, {A: SIZE})], 1)
+    truncated = download.download_requests(session, [([A], dest, {A: SIZE})], 1)
     assert session.calls == [A]  # an error page goes straight to the next URL
     assert not dest.exists()
     assert truncated == set()
@@ -182,7 +182,7 @@ def test_requests_error_page_is_not_truncation(tdl, tmp_path):
 def test_requests_accepts_smaller_watermarked_fallback(tdl, tmp_path):
     dest = tmp_path / "p" / "video.mp4"
     session = FakeSession({A: [HTML], WM: [WATERMARKED]})
-    truncated = tdl.download_requests(session, [([A, WM], dest, {A: SIZE})], 1)
+    truncated = download.download_requests(session, [([A, WM], dest, {A: SIZE})], 1)
     assert session.calls == [A, WM]
     assert dest.read_bytes() == WATERMARKED
     assert truncated == set()
@@ -193,7 +193,7 @@ def test_requests_leftover_is_held_to_reported_size(tdl, tmp_path):
     dest.parent.mkdir()
     dest.write_bytes(SHORT)  # cut short in an earlier run
     session = FakeSession({A: [MP4]})
-    tdl.download_requests(session, [([A, WM], dest, {A: SIZE})], 1)
+    download.download_requests(session, [([A, WM], dest, {A: SIZE})], 1)
     assert session.calls == [A]
     assert dest.read_bytes() == MP4
 
@@ -235,10 +235,10 @@ def aria2_passes(tdl, tmp_path, monkeypatch, bodies, mirrors, sizes):
     work.mkdir(exist_ok=True)
     dest = work / "p" / "video.mp4"
     fake = FakeAria2(bodies)
-    monkeypatch.setattr(tdl.subprocess, "Popen", fake)
+    monkeypatch.setattr(download.subprocess, "Popen", fake)
     truncated = set()
     for attempt in range(len(mirrors)):
-        truncated |= tdl.download_aria2("aria2c", [(mirrors, dest, sizes)], "", 1, 1, attempt)
+        truncated |= download.download_aria2("aria2c", [(mirrors, dest, sizes)], "", 1, 1, attempt)
     return dest, truncated, fake.calls
 
 
@@ -267,8 +267,8 @@ def test_aria2_accepts_smaller_watermarked_fallback(tdl, tmp_path, monkeypatch):
 def test_aria2_skips_complete_file(tdl, tmp_path, monkeypatch):
     dest = tmp_path / "video.mp4"
     dest.write_bytes(MP4)
-    monkeypatch.setattr(tdl.subprocess, "Popen", lambda *a, **k: pytest.fail("aria2c should not run"))
-    tdl.download_aria2("aria2c", [([A], dest, {A: SIZE})], "", 1, 1, 0)
+    monkeypatch.setattr(download.subprocess, "Popen", lambda *a, **k: pytest.fail("aria2c should not run"))
+    download.download_aria2("aria2c", [([A], dest, {A: SIZE})], "", 1, 1, 0)
     assert dest.read_bytes() == MP4
 
 
@@ -278,8 +278,8 @@ def test_aria2_leftover_is_held_to_reported_size(tdl, tmp_path, monkeypatch):
     dest.parent.mkdir(parents=True)
     dest.write_bytes(SHORT)  # cut short in an earlier run
     fake = FakeAria2({A: [MP4]})
-    monkeypatch.setattr(tdl.subprocess, "Popen", fake)
-    tdl.download_aria2("aria2c", [([A, WM], dest, {A: SIZE})], "", 1, 1, 0)
+    monkeypatch.setattr(download.subprocess, "Popen", fake)
+    download.download_aria2("aria2c", [([A, WM], dest, {A: SIZE})], "", 1, 1, 0)
     assert fake.calls == [A]
     assert dest.read_bytes() == MP4
 
@@ -311,7 +311,7 @@ def run_profile(tdl, tmp_path, monkeypatch, item, session=None, aria2=None):
 
 def test_every_mirror_truncated_aria2_is_reported(tdl, tmp_path, monkeypatch):
     fake = FakeAria2({A: [SHORT], B: [SHORT], WM: [HTML]})
-    monkeypatch.setattr(tdl.subprocess, "Popen", fake)
+    monkeypatch.setattr(download.subprocess, "Popen", fake)
     failed, out = run_profile(tdl, tmp_path, monkeypatch, video_item(), aria2="aria2c")
     assert failed == 1
     assert fake.calls == [A, B, WM]  # every URL was tried
@@ -321,7 +321,7 @@ def test_every_mirror_truncated_aria2_is_reported(tdl, tmp_path, monkeypatch):
 
 
 def test_second_mirror_complete_aria2_succeeds(tdl, tmp_path, monkeypatch):
-    monkeypatch.setattr(tdl.subprocess, "Popen", FakeAria2({A: [SHORT], B: [MP4], WM: [HTML]}))
+    monkeypatch.setattr(download.subprocess, "Popen", FakeAria2({A: [SHORT], B: [MP4], WM: [HTML]}))
     failed, out = run_profile(tdl, tmp_path, monkeypatch, video_item(), aria2="aria2c")
     assert failed == 0
     assert not (out / "failed.txt").exists()
@@ -339,7 +339,7 @@ def test_every_mirror_truncated_requests_is_reported(tdl, tmp_path, monkeypatch)
 def test_watermarked_fallback_is_accepted(tdl, tmp_path, monkeypatch, aria2):
     """playAddr gives an error page; the smaller watermarked downloadAddr file is complete."""
     bodies = {A: [HTML], B: [HTML], WM: [WATERMARKED]}
-    monkeypatch.setattr(tdl.subprocess, "Popen", FakeAria2(bodies))
+    monkeypatch.setattr(download.subprocess, "Popen", FakeAria2(bodies))
     failed, out = run_profile(tdl, tmp_path, monkeypatch, video_item(), session=FakeSession(bodies), aria2=aria2)
     assert failed == 0
     assert not (out / "failed.txt").exists()
