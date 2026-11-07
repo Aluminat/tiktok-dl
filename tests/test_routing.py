@@ -266,7 +266,7 @@ def test_unknown_link_is_not_a_username_of_the_site_option(target, name):
     label = BY_NAME[name].label
     with pytest.raises(ScrapeError) as e:
         find_site(target, name)
-    assert str(e.value) == f"not a {label} link or username (--site {name}): {target}"
+    assert str(e.value) == f"not a link or username for {label} (--site {name}): {target}"
 
 
 def test_unknown_link_with_site_option_in_vietnamese(monkeypatch):

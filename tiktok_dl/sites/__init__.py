@@ -33,6 +33,6 @@ def find_site(target: str, name: Optional[str] = None):
     # A link no site claims (another website, a look-alike host) is not a username of the --site site.
     # TikTok already rejects these in its own username check, with its existing message.
     if site is not SITES[0] and ("://" in text or "/" in text):
-        raise ScrapeError(t(f"not a {site.label} link or username (--site {name}): {text}",
+        raise ScrapeError(t(f"not a link or username for {site.label} (--site {name}): {text}",
                             f"không phải link hay username {site.label} (--site {name}): {text}"))
     return site
