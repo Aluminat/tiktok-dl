@@ -36,6 +36,21 @@ Tool tìm từng chương trình cạnh file `tiktok-dl.py` trước, sau đó m
   (đã cài ở bước 2), nên không cài ffmpeg riêng cũng được.
 - **aria2c:** nếu không có, tool tải bằng `requests` của Python (chậm hơn).
 
+### Hoặc cài thành lệnh `tiktok-dl`
+
+Thay cho bước 2 và 3 ở trên, bạn có thể cài `tiktok-dl` thành một lệnh bằng
+[pipx](https://pipx.pypa.io) (hoặc `uv tool install`), không cần clone repo:
+
+```bash
+pipx install git+https://github.com/Aluminat/tiktok-dl
+tiktok-dl @username
+```
+
+Sau đó dùng `tiktok-dl` ở chỗ nào các lệnh bên dưới ghi `python tiktok-dl.py`.
+Cập nhật bằng `pipx upgrade tiktok-dl`, gỡ bằng `pipx uninstall tiktok-dl`.
+Bản cài theo cách này tìm aria2c và ffmpeg qua `PATH` (trên Windows, hãy đặt các file `.exe`
+vào một thư mục có trong `PATH`), và vẫn dùng ffmpeg của `imageio-ffmpeg` nếu không tìm thấy.
+
 Trên Linux/macOS, dùng `python3` thay cho `python` trong các lệnh bên dưới.
 
 ## Cách dùng

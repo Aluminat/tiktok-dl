@@ -1,0 +1,56 @@
+# Packaging only: lets `pipx install git+https://github.com/Aluminat/tiktok-dl` give a
+# `tiktok-dl` command. The app itself is tiktok-dl.py (see docs/adr/0001).
+# Lint settings are in ruff.toml and pytest settings in pytest.ini.
+
+[build-system]
+requires = ["hatchling>=1.18"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tiktok-dl"
+dynamic = ["version"]
+description = "Download every video from a TikTok profile, with full metadata (aria2c + ffmpeg)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "doumamay" }]
+classifiers = [
+    "Environment :: Console",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+]
+# Keep in sync with requirements.txt (tests/test_package.py checks this).
+dependencies = [
+    "requests>=2.31",
+    "yt-dlp>=2025.1.1",
+    "imageio-ffmpeg>=0.5",
+]
+
+[project.urls]
+Homepage = "https://github.com/Aluminat/tiktok-dl"
+Issues = "https://github.com/Aluminat/tiktok-dl/issues"
+
+[project.scripts]
+tiktok-dl = "tiktok_dl:main"
+
+# The version has one source: __version__ in tiktok-dl.py.
+[tool.hatch.version]
+path = "tiktok-dl.py"
+
+# The wheel holds the script and its thin importable wrapper, side by side.
+[tool.hatch.build.targets.wheel]
+only-include = ["tiktok-dl.py", "tiktok_dl.py"]
+
+[tool.hatch.build.targets.sdist]
+only-include = [
+    "tiktok-dl.py",
+    "tiktok_dl.py",
+    "tests",
+    "pytest.ini",
+    "requirements.txt",
+    "requirements-dev.txt",
+    "README.md",
+    "README.vi.md",
+    "LICENSE",
+]

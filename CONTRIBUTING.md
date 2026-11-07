@@ -55,7 +55,12 @@ download works and has a code map. In short:
   If you can't write Vietnamese, put the English text in both and say so in the pull request.
 - **Use the color helpers** (`green()`, `red()`, `yellow()`, `gray()`...) instead of raw ANSI codes,
   so `--no-color` and `NO_COLOR` keep working.
-- **Keep it one file** and keep the dependencies in `requirements.txt` small.
+- **Keep it one file.** All app code lives in `tiktok-dl.py`. `tiktok_dl.py` is only a thin
+  wrapper that makes the script importable for the installed `tiktok-dl` command; don't add code
+  there. The version is `__version__` in `tiktok-dl.py` and nowhere else (`pyproject.toml` reads
+  it). See [docs/adr/0001](docs/adr/0001-single-file-app-with-thin-install-wrapper.md).
+- **Keep the dependencies small.** They are listed in both `requirements.txt` and
+  `pyproject.toml`; change both (a test checks that they match).
 - **Comments and commit messages are in English.**
 
 ## Test your change
@@ -76,11 +81,14 @@ pytest            # unit tests in tests/, no network needed
 ```
 
 The tests load `tiktok-dl.py` straight from its file (see `tests/conftest.py`), so there is
-nothing to install or rename. They never call TikTok: anything that would use the network is
+nothing to install or rename. To run them against an installed copy instead, as CI does, install
+the package (`pip install .`) and run `pytest` with `TIKTOK_DL_TEST_INSTALLED=1` set. They never call TikTok: anything that would use the network is
 mocked, and a test that tries a real HTTP request fails. When you fix a bug, add a test for it.
 
 GitHub Actions runs the same two commands on every push and pull request, on Windows and Linux
-with Python 3.10 and 3.13 (`.github/workflows/ci.yml`).
+with Python 3.10 and 3.13 (`.github/workflows/ci.yml`). It then builds the package, checks that
+the pipx-installed `tiktok-dl --version` matches `__version__`, and runs the tests again against
+the installed wheel.
 
 ### Manual checks
 
