@@ -10,7 +10,9 @@ from ..core.errors import ScrapeError
 from ..core.site import Entry, Site
 
 # instagram.com with any subdomain (www., m.): profiles, /p/, /reel/, /reels/, /tv/, with or without a query.
-INSTAGRAM_LINK_RE = re.compile(r"^(?:https?://)?(?:[\w-]+\.)*instagram\.com(?:[/?#]|$)", re.I)
+# Without a scheme something must follow the host: a bare "a.instagram.com" is a valid TikTok username.
+_HOST = r"(?:[\w-]+\.)*instagram\.com"
+INSTAGRAM_LINK_RE = re.compile(rf"^(?:https?://{_HOST}(?:[/?#]|$)|{_HOST}[/?#])", re.I)
 
 
 class InstagramSite(Site):

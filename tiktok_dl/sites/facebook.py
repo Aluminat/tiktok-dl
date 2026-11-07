@@ -11,7 +11,9 @@ from ..core.site import Entry, Site
 
 # facebook.com with any subdomain (www., m., web.) and fb.watch short links. Short links are only
 # recognised, not opened: nothing is read from the network for a site that is not supported yet.
-FACEBOOK_LINK_RE = re.compile(r"^(?:https?://)?(?:[\w-]+\.)*(?:facebook\.com|fb\.watch)(?:[/?#]|$)", re.I)
+# Without a scheme something must follow the host: a bare "fb.watch" is a valid TikTok username.
+_HOST = r"(?:[\w-]+\.)*(?:facebook\.com|fb\.watch)"
+FACEBOOK_LINK_RE = re.compile(rf"^(?:https?://{_HOST}(?:[/?#]|$)|{_HOST}[/?#])", re.I)
 
 
 class FacebookSite(Site):

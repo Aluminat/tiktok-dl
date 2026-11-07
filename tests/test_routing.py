@@ -47,7 +47,9 @@ FACEBOOK_LINKS = [
     "HTTPS://FB.WATCH/ABCD/",
 ]
 TIKTOK_TARGETS = ["@some.user", "some.user", "instagram", "facebook", "https://www.tiktok.com/@some.user",
-                  "https://vt.tiktok.com/ZSabc/", "https://www.tiktok.com/@some.user/photo/1"]
+                  "https://vt.tiktok.com/ZSabc/", "https://www.tiktok.com/@some.user/photo/1",
+                  # a bare host with no scheme or path is a valid TikTok username, as it was before
+                  "fb.watch", "a.instagram.com", "my.facebook.com"]
 LOOKALIKES = ["https://notinstagram.com/p/x", "https://instagram.com.evil.example/p/x",
               "https://fakefacebook.com/reel/1", "https://facebook.com.evil.example/reel/1",
               "https://fb.watcher.example/x", "https://example.com/?u=instagram.com",
