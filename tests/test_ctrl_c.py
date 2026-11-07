@@ -54,6 +54,9 @@ def profile(tdl, monkeypatch):
         def cookie_header(self) -> str:
             return ""
 
+        def stop(self) -> None:
+            pass
+
         def item(self, username: str, video_id: str) -> dict:
             calls.append(video_id)
             hook = on_item.get(len(calls))

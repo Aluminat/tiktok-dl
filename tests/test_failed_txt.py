@@ -102,6 +102,9 @@ class FakeTikTok:
     def cookie_header(self):
         return ""
 
+    def stop(self):
+        pass
+
 
 def make_opts(tmp_path) -> SimpleNamespace:
     return SimpleNamespace(output=str(tmp_path), session_id=None, wait=0, proxy=None, limit=None,

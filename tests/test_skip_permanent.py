@@ -53,6 +53,9 @@ def run(tdl, tmp_path, monkeypatch):
         def cookie_header(self):
             return ""
 
+        def stop(self):
+            pass
+
     def fake_finalize(post, out_dir, ffmpeg, opts):
         if post.id in finalize_errors:
             raise finalize_errors[post.id]
