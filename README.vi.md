@@ -68,6 +68,7 @@ python tiktok-dl.py @username
 | `python tiktok-dl.py <link video>` | Tải một video |
 | `python tiktok-dl.py https://vt.tiktok.com/XXXXXXXXX/` | Link rút gọn copy từ app TikTok cũng được |
 | `python tiktok-dl.py @username --lang vi` | Hiện thông báo bằng tiếng Việt |
+| `python tiktok-dl.py @username --retry-all` | Thử lại cả bài đã xoá và bài quảng cáo / TikTok Shop mà các lần chạy lại bỏ qua |
 
 File được lưu trong `downloads/<username>/`.
 
@@ -92,6 +93,8 @@ https://www.tiktok.com/@username/video/7705012484368780552
 ```
 
 `failed.txt` được cập nhật sau mỗi lần chạy và liệt kê mọi bài của kênh vẫn đang lỗi, kể cả bài lỗi từ những lần chạy trước (tải một video lẻ cũng không làm mất danh sách này). File tự xoá khi không còn bài nào lỗi.
+
+Bài không bao giờ tải được (bài đã bị xoá, bài quảng cáo / TikTok Shop mà TikTok không cho link tải) chỉ báo lỗi một lần, sau đó được ghi `(bỏ qua)` trong `failed.txt`. Các lần chạy lại sẽ bỏ qua chúng mà không cần mở trang bài; còn các lỗi khác (lỗi mạng, bị giới hạn tốc độ, lỗi ffmpeg) vẫn được thử lại mỗi lần chạy. Thêm `--retry-all` để thử lại cả các bài bị bỏ qua, ví dụ khi TikTok thay đổi cách trả dữ liệu.
 
 ## Lấy session ID (không bắt buộc)
 
@@ -124,7 +127,7 @@ Chỉ cần khi tải **tài khoản riêng tư bạn đang theo dõi** hoặc *
 
 - **Không lấy được danh sách bài:** chạy `pip install -U yt-dlp`
 - **Vài bài bị lỗi:** xem file `failed.txt` trong thư mục tải (có link và lý do từng bài), rồi chạy lại đúng lệnh cũ
-- **Video quảng cáo / TikTok Shop bị lỗi:** TikTok không cung cấp link tải cho loại video này qua web, kể cả khi đã đăng nhập. Chúng được liệt kê trong `failed.txt` để bạn tự mở xem
+- **Video quảng cáo / TikTok Shop bị lỗi:** TikTok không cung cấp link tải cho loại video này qua web, kể cả khi đã đăng nhập. Chúng được liệt kê trong `failed.txt` để bạn tự mở xem, và các lần chạy lại sẽ bỏ qua chúng (thêm `--retry-all` để thử lại)
 - **Tài khoản riêng tư:** thêm `--session-id <cookie sessionid của bạn>`
 
 ## Đóng góp

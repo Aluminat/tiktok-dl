@@ -68,6 +68,7 @@ python tiktok-dl.py @username
 | `python tiktok-dl.py <video link>` | Download one video |
 | `python tiktok-dl.py https://vt.tiktok.com/XXXXXXXXX/` | Short links from the TikTok app work too |
 | `python tiktok-dl.py @username --lang vi` | Show messages in Vietnamese |
+| `python tiktok-dl.py @username --retry-all` | Also retry deleted and ad / TikTok Shop posts that re-runs skip |
 
 Files are saved in `downloads/<username>/`.
 
@@ -92,6 +93,8 @@ https://www.tiktok.com/@username/video/7705012484368780552
 ```
 
 `failed.txt` is updated on every run and lists every post of the profile that is still failing, including ones from earlier runs (a single-video run does not wipe it). It is removed when nothing fails.
+
+Posts that can never be downloaded (deleted posts, and ad / TikTok Shop posts that TikTok gives no download link for) fail once and are then marked `(skipped)` in `failed.txt`. Re-runs skip them without loading their page; everything else that failed (network errors, rate limits, ffmpeg errors) is retried on every run. Add `--retry-all` to try the skipped posts again, for example if TikTok changes how it serves them.
 
 ## Get your session ID (optional)
 
@@ -124,7 +127,7 @@ You only need this for **private accounts you follow** or **age-restricted posts
 
 - **Can't get the post list:** run `pip install -U yt-dlp`
 - **Some posts failed:** see `failed.txt` in the output folder (link + reason for each post), then run the same command again
-- **Ad / TikTok Shop videos fail:** TikTok does not give a download link for these on the web, even when you are logged in. They are listed in `failed.txt` so you can open them yourself
+- **Ad / TikTok Shop videos fail:** TikTok does not give a download link for these on the web, even when you are logged in. They are listed in `failed.txt` so you can open them yourself, and re-runs skip them (use `--retry-all` to try again)
 - **Private account:** add `--session-id <your sessionid cookie>`
 
 ## Contributing
