@@ -1,10 +1,11 @@
-"""Packaging: the `tiktok-dl` command, the tiktok_dl wrapper and where tools are found.
+"""Packaging: the `tiktok-dl` command, the tiktok_dl package, the launcher and where tools are found.
 
 The subprocess tests only run `--version` / `-h`, which exit before any network use.
 """
 from __future__ import annotations
 
 import re
+import runpy
 import shutil
 import subprocess
 import sys
@@ -13,51 +14,54 @@ import types
 from pathlib import Path
 
 import pytest
-from conftest import REPO, SCRIPT, TEST_INSTALLED
+from conftest import LAUNCHER, REPO, TEST_INSTALLED, VERSION_FILE
+
+import tiktok_dl
 
 
 def run(*args, cwd=REPO):
     return subprocess.run(list(args), cwd=cwd, capture_output=True, text=True, encoding="utf-8", timeout=60)
 
 
-def script_version() -> str:
-    match = re.search(r'^__version__ = "([^"]+)"', SCRIPT.read_text(encoding="utf-8"), re.M)
+def source_version() -> str:
+    match = re.search(r'^__version__ = "([^"]+)"', VERSION_FILE.read_text(encoding="utf-8"), re.M)
     return match.group(1)
 
 
-def test_version_matches_script(tdl):
+def test_version_matches_source():
     # In installed mode this checks that the installed copy is the one in this clone.
-    assert tdl.__version__ == script_version()
+    assert tiktok_dl.__version__ == source_version()
 
 
 def test_script_runs_from_clone():
-    result = run(sys.executable, str(SCRIPT), "--version")
+    result = run(sys.executable, str(LAUNCHER), "--version")
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == f"tiktok-dl {script_version()}"
+    assert result.stdout.strip() == f"tiktok-dl {source_version()}"
 
 
-def test_wrapper_is_the_script():
-    code = "import tiktok_dl; print(tiktok_dl.__version__); print(tiktok_dl.__file__); print(tiktok_dl.main)"
+def test_package_imports_from_clone():
+    code = ("import tiktok_dl, tiktok_dl.cli; print(tiktok_dl.__version__); print(tiktok_dl.__file__); "
+            "print(tiktok_dl.cli.main)")
     result = run(sys.executable, "-c", code)
     assert result.returncode == 0, result.stderr
     version, file, main = result.stdout.splitlines()
-    assert version == script_version()
-    assert Path(file).resolve() == SCRIPT
+    assert version == source_version()
+    assert Path(file).resolve() == VERSION_FILE
     assert main.startswith("<function main")
 
 
 @pytest.mark.parametrize(
     "args",
     [
-        # What the installed console script does: `from tiktok_dl import main; main()`.
-        ["-c", "import sys; sys.argv = ['tiktok-dl', '--version']; from tiktok_dl import main; main()"],
+        # What the installed console script does: `from tiktok_dl.cli import main; main()`.
+        ["-c", "import sys; sys.argv = ['tiktok-dl', '--version']; from tiktok_dl.cli import main; main()"],
         ["-m", "tiktok_dl", "--version"],
     ],
 )
-def test_wrapper_main(args):
+def test_console_script_main(args):
     result = run(sys.executable, *args)
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == f"tiktok-dl {script_version()}"
+    assert result.stdout.strip() == f"tiktok-dl {source_version()}"
 
 
 def test_pyproject_matches_requirements():
@@ -66,11 +70,10 @@ def test_pyproject_matches_requirements():
     requirements = [line.strip() for line in (REPO / "requirements.txt").read_text(encoding="utf-8").splitlines()
                     if line.strip() and not line.startswith("#")]
     assert project["project"]["dependencies"] == requirements
-    assert project["project"]["scripts"] == {"tiktok-dl": "tiktok_dl:main"}
+    assert project["project"]["scripts"] == {"tiktok-dl": "tiktok_dl.cli:main"}
     assert project["project"]["dynamic"] == ["version"]
-    assert project["tool"]["hatch"]["version"]["path"] == "tiktok-dl.py"
-    assert set(project["tool"]["hatch"]["build"]["targets"]["wheel"]["only-include"]) == {"tiktok-dl.py",
-                                                                                         "tiktok_dl.py"}
+    assert project["tool"]["hatch"]["version"]["path"] == "tiktok_dl/__init__.py"
+    assert project["tool"]["hatch"]["build"]["targets"]["wheel"]["packages"] == ["tiktok_dl"]
 
 
 # --------------------------------------------------------------------------- #
@@ -120,6 +123,16 @@ def test_script_dir(tdl):
         assert tdl.SCRIPT_DIR == REPO
 
 
+def test_launcher_sets_tools_dir(tdl, tmp_path, monkeypatch):
+    monkeypatch.setattr(tdl, "SCRIPT_DIR", tdl.SCRIPT_DIR)   # restored afterwards
+    copy = tmp_path / "tiktok-dl.py"
+    shutil.copyfile(LAUNCHER, copy)
+    # run_name is not "__main__", so main() is not called. run_path does not change sys.path: the
+    # launcher's imports find the package conftest already imported (clone or installed).
+    runpy.run_path(str(copy))
+    assert tdl.SCRIPT_DIR == copy.resolve().parent   # resolved like the launcher does (Windows 8.3 / case)
+
+
 # --------------------------------------------------------------------------- #
 # The installed `tiktok-dl` command (CI sets TIKTOK_DL_TEST_INSTALLED=1)
 # --------------------------------------------------------------------------- #
@@ -131,10 +144,10 @@ def installed_command() -> str:
 
 
 @pytest.mark.skipif(not TEST_INSTALLED, reason="needs the installed package (TIKTOK_DL_TEST_INSTALLED=1)")
-def test_installed_command_version(tdl, tmp_path):
+def test_installed_command_version(tmp_path):
     result = run(installed_command(), "--version", cwd=tmp_path)
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == f"tiktok-dl {tdl.__version__}"
+    assert result.stdout.strip() == f"tiktok-dl {tiktok_dl.__version__}"
 
 
 @pytest.mark.skipif(not TEST_INSTALLED, reason="needs the installed package (TIKTOK_DL_TEST_INSTALLED=1)")

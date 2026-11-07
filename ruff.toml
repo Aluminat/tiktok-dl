@@ -6,6 +6,6 @@ target-version = "py310"
 select = ["E", "F", "W", "I"]
 
 [lint.per-file-ignores]
-# A few existing lines in the script are slightly over 120 characters.
+# A few existing lines are slightly over 120 characters (moved from the old single-file script).
 # Wrap them when you touch that code; new code (and tests) keep the limit.
-"tiktok-dl.py" = ["E501"]
+"tiktok_dl/cli.py" = ["E501"]

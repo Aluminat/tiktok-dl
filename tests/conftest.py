@@ -1,15 +1,12 @@
 """Shared fixtures.
 
-tiktok-dl.py has a hyphen in its name, so it cannot be imported with a normal
-`import` statement. The `tdl` fixture loads it from its file path instead.
-
-With TIKTOK_DL_TEST_INSTALLED=1 (used by CI), `tdl` is the installed package
-instead (`import tiktok_dl`), so the same tests run against the built wheel.
+The tests import the tiktok_dl package: the one in this clone (put first on sys.path), or with
+TIKTOK_DL_TEST_INSTALLED=1 (used by CI) the installed package, so the same tests run against the
+built wheel. The package is imported here, when conftest loads, before any test module.
 """
 from __future__ import annotations
 
 import importlib
-import importlib.util
 import io
 import os
 import sys
@@ -19,40 +16,38 @@ import pytest
 import requests
 
 REPO = Path(__file__).resolve().parent.parent
-SCRIPT = REPO / "tiktok-dl.py"
+LAUNCHER = REPO / "tiktok-dl.py"
+VERSION_FILE = REPO / "tiktok_dl" / "__init__.py"
 TEST_INSTALLED = os.environ.get("TIKTOK_DL_TEST_INSTALLED") == "1"
 
 
-def _load_script():
-    # At import time the script reconfigures sys.stdout/sys.stderr to UTF-8 and
-    # checks isatty(). Give it plain StringIO streams (no reconfigure()) so it
-    # does not touch pytest's capture streams or the real console.
+def _import_package() -> None:
+    if not TEST_INSTALLED:
+        sys.path.insert(0, str(REPO))
+    # Importing the package reconfigures sys.stdout/sys.stderr to UTF-8 and checks isatty()
+    # (tiktok_dl/core/console.py). Give it plain StringIO streams (no reconfigure()) so it does not
+    # touch pytest's capture streams or the real console.
     real_out, real_err = sys.stdout, sys.stderr
     sys.stdout, sys.stderr = io.StringIO(), io.StringIO()
     try:
-        if TEST_INSTALLED:
-            return _import_installed()
-        spec = importlib.util.spec_from_file_location("tiktok_dl", SCRIPT)
-        module = importlib.util.module_from_spec(spec)
-        sys.modules["tiktok_dl"] = module
-        spec.loader.exec_module(module)
-        return module
+        importlib.import_module("tiktok_dl.cli")   # imports every module of the package
     finally:
         sys.stdout, sys.stderr = real_out, real_err
-
-
-def _import_installed():
-    module = importlib.import_module("tiktok_dl")
-    if Path(module.__file__).resolve().parent == REPO:
+    package_dir = Path(sys.modules["tiktok_dl"].__file__).resolve().parent
+    if TEST_INSTALLED and package_dir.parent == REPO:
         raise RuntimeError("TIKTOK_DL_TEST_INSTALLED=1 but tiktok_dl was imported from the clone, "
                            "not the installed package. Run the `pytest` command, not `python -m pytest`.")
-    return module
+    if not TEST_INSTALLED and package_dir.parent != REPO:
+        raise RuntimeError(f"tiktok_dl was imported from {package_dir}, not from this clone.")
+
+
+_import_package()
 
 
 @pytest.fixture(scope="session")
 def tdl():
-    """The tiktok-dl.py module."""
-    return _load_script()
+    """Temporary while the app is split into modules: the names not moved out of cli.py yet."""
+    return sys.modules["tiktok_dl.cli"]
 
 
 @pytest.fixture(autouse=True)

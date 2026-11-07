@@ -1,6 +1,6 @@
 # Packaging only: lets `pipx install git+https://github.com/Aluminat/tiktok-dl` give a
-# `tiktok-dl` command. The app itself is tiktok-dl.py (see docs/adr/0001).
-# Lint settings are in ruff.toml and pytest settings in pytest.ini.
+# `tiktok-dl` command. The app is the tiktok_dl package; tiktok-dl.py is its launcher for clones
+# (see docs/adr/0002). Lint settings are in ruff.toml and pytest settings in pytest.ini.
 
 [build-system]
 requires = ["hatchling>=1.18"]
@@ -32,20 +32,20 @@ Homepage = "https://github.com/Aluminat/tiktok-dl"
 Issues = "https://github.com/Aluminat/tiktok-dl/issues"
 
 [project.scripts]
-tiktok-dl = "tiktok_dl:main"
+tiktok-dl = "tiktok_dl.cli:main"
 
-# The version has one source: __version__ in tiktok-dl.py.
+# The version has one source: __version__ in tiktok_dl/__init__.py.
 [tool.hatch.version]
-path = "tiktok-dl.py"
+path = "tiktok_dl/__init__.py"
 
-# The wheel holds the script and its thin importable wrapper, side by side.
+# The wheel holds the package only (the launcher is for clones).
 [tool.hatch.build.targets.wheel]
-only-include = ["tiktok-dl.py", "tiktok_dl.py"]
+packages = ["tiktok_dl"]
 
 [tool.hatch.build.targets.sdist]
 only-include = [
+    "tiktok_dl",
     "tiktok-dl.py",
-    "tiktok_dl.py",
     "tests",
     "pytest.ini",
     "requirements.txt",

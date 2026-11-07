@@ -8,8 +8,11 @@ from types import SimpleNamespace
 
 import pytest
 import requests
+from conftest import LAUNCHER
 
-SCRIPT = Path(__file__).resolve().parent.parent / "tiktok-dl.py"
+import tiktok_dl
+
+SOURCES = sorted(Path(tiktok_dl.__file__).parent.rglob("*.py")) + [LAUNCHER]
 
 # --------------------------------------------------------------------------- #
 # TikTok._scope retries
@@ -51,18 +54,29 @@ def test_page_read_success_after_retry(tdl, monkeypatch):
 # --------------------------------------------------------------------------- #
 
 
+def is_t_import(node: ast.ImportFrom, alias: ast.alias) -> bool:
+    """The one import of t() the package needs: `from <...>console import t`, not renamed."""
+    return (node.module or "").endswith("console") and alias.name == "t" and alias.asname is None
+
+
 def test_no_variable_named_t():
-    tree = ast.parse(SCRIPT.read_text(encoding="utf-8"))
     offenders = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Name) and node.id == "t" and not isinstance(node.ctx, ast.Load):
-            offenders.append(node.lineno)
-        elif isinstance(node, ast.arg) and node.arg == "t":
-            offenders.append(node.lineno)
-        elif isinstance(node, ast.ExceptHandler) and node.name == "t":
-            offenders.append(node.lineno)
-        elif isinstance(node, ast.alias) and (node.asname or node.name) == "t":
-            offenders.append(node.lineno)
+    for source in SOURCES:
+        tree = ast.parse(source.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and node.id == "t" and not isinstance(node.ctx, ast.Load):
+                offenders.append((source.name, node.lineno))
+            elif isinstance(node, ast.arg) and node.arg == "t":
+                offenders.append((source.name, node.lineno))
+            elif isinstance(node, ast.ExceptHandler) and node.name == "t":
+                offenders.append((source.name, node.lineno))
+            elif isinstance(node, (ast.Import, ast.ImportFrom)):
+                for alias in node.names:
+                    if (alias.asname or alias.name) != "t":
+                        continue
+                    if isinstance(node, ast.ImportFrom) and is_t_import(node, alias):
+                        continue
+                    offenders.append((source.name, node.lineno))
     assert offenders == []
 
 
