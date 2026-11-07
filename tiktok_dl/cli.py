@@ -1,7 +1,8 @@
 """Command line: the arguments, main(), and scrape_profile(), which picks the site for a target
 (sites.find_site(): the site of a link, or --site for a username).
 
-The TikTok login flags (--session-id, --check-session) still call the TikTok module directly.
+Each site reads its own login cookie (Site.session()): TikTok --session-id / TIKTOK_SESSIONID, Instagram
+--ig-session-id / INSTAGRAM_SESSIONID. --check-session still calls the TikTok module directly.
 """
 from __future__ import annotations
 
@@ -13,8 +14,8 @@ from typing import Optional
 from . import __version__
 from .core import console, flow, tools
 from .core.console import bold, bold_green, bold_red, gray, green, red, t, yellow
-from .core.errors import ChallengeStop, RateLimited, ScrapeError
-from .sites import BY_NAME, find_site, tiktok
+from .core.errors import ChallengeStop, RateLimited, ScrapeError, SiteStop
+from .sites import BY_NAME, find_site, instagram, tiktok
 
 
 def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str]) -> int:
@@ -30,20 +31,25 @@ def main() -> None:
 
     p = argparse.ArgumentParser(
         prog="tiktok-dl",
-        description=t("Download every video from a TikTok profile (aria2c + ffmpeg, with full metadata).",
-                      "Tải toàn bộ video của profile TikTok (aria2c + ffmpeg, kèm đầy đủ metadata)."),
+        description=t("Download every video from a TikTok profile, or an Instagram reel (aria2c + ffmpeg, with "
+                      "full metadata).",
+                      "Tải toàn bộ video của profile TikTok, hoặc reel Instagram (aria2c + ffmpeg, kèm đầy đủ "
+                      "metadata)."),
         epilog=t("Examples:", "Ví dụ:")
                + "\n  python tiktok-dl.py @tiktok\n  python tiktok-dl.py tiktok -n 20 -j 16\n"
                "  python tiktok-dl.py https://www.tiktok.com/@tiktok/video/7704834703446117662\n"
                "  python tiktok-dl.py https://vt.tiktok.com/XXXXXXXXX/\n"
-               "  python tiktok-dl.py @tiktok --lang vi\n\n"
+               "  python tiktok-dl.py @tiktok --lang vi\n"
+               "  python tiktok-dl.py https://www.instagram.com/reel/XXXXXXXXXXX/   (INSTAGRAM_SESSIONID)\n\n"
                + t("Put aria2c.exe and ffmpeg.exe next to tiktok-dl.py (or in PATH).",
                    "Đặt aria2c.exe và ffmpeg.exe cạnh tiktok-dl.py (hoặc trong PATH)."),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument("targets", nargs="*", metavar="profile",
-                   help=t("username, @username, profile link, video link or short link (several allowed)",
-                          "username, @username, link profile, link video hoặc link rút gọn (có thể nhập nhiều)"))
+                   help=t("username, @username, profile link, video link, short link or Instagram reel link "
+                          "(several allowed)",
+                          "username, @username, link profile, link video, link rút gọn hoặc link reel Instagram "
+                          "(có thể nhập nhiều)"))
     p.add_argument("--site", choices=tuple(BY_NAME),
                    help=t("the site usernames belong to (without it: tiktok); with it, links must be from this site",
                           "username thuộc trang nào (không có thì là tiktok); khi có, link phải thuộc đúng trang này"))
@@ -52,14 +58,16 @@ def main() -> None:
     p.add_argument("-n", "--limit", type=int, help=t("only the N newest posts", "chỉ lấy N bài mới nhất"))
     p.add_argument("-j", "--jobs", type=int, default=16,
                    help=t("files aria2c downloads at once (default: 16)", "số file aria2c tải cùng lúc (mặc định: 16)"))
-    p.add_argument("-x", "--connections", type=int, default=4,
+    # No argparse default for these three: each site has its own (Site.defaults, core.flow.run_settings).
+    p.add_argument("-x", "--connections", type=int,
                    help=t("aria2c connections per file, max 16 (default: 4)",
                           "số kết nối aria2c cho mỗi file, tối đa 16 (mặc định: 4)"))
-    p.add_argument("-w", "--workers", type=int, default=8,
-                   help=t("threads reading metadata (default: 8)", "số luồng đọc metadata (mặc định: 8)"))
-    p.add_argument("--wait", type=float, default=0.3,
-                   help=t("seconds between TikTok page requests (default: 0.3)",
-                          "giãn cách giữa các request trang TikTok, giây (mặc định: 0.3)"))
+    p.add_argument("-w", "--workers", type=int,
+                   help=t("threads reading metadata (default: TikTok 8, Instagram 1)",
+                          "số luồng đọc metadata (mặc định: TikTok 8, Instagram 1)"))
+    p.add_argument("--wait", type=float,
+                   help=t("seconds between page requests (default: TikTok 0.3, Instagram 3)",
+                          "giãn cách giữa các request trang, giây (mặc định: TikTok 0.3, Instagram 3)"))
     p.add_argument("--batch", type=int, default=50,
                    help=t("posts per read-download-mux batch (default: 50)",
                           "số bài mỗi lô đọc-tải-mux (mặc định: 50)"))
@@ -95,11 +103,16 @@ def main() -> None:
                           'safer: set the TIKTOK_SESSIONID environment variable instead',
                           'cookie "sessionid" tài khoản TikTok của bạn (bài giới hạn tuổi, '
                           'tài khoản riêng tư bạn theo dõi); an toàn hơn: đặt biến môi trường TIKTOK_SESSIONID'))
+    p.add_argument("--ig-session-id",
+                   help=t('your Instagram "sessionid" cookie, needed for Instagram links; safer: set the '
+                          'INSTAGRAM_SESSIONID environment variable instead',
+                          'cookie "sessionid" tài khoản Instagram của bạn, cần cho link Instagram; an toàn hơn: '
+                          'đặt biến môi trường INSTAGRAM_SESSIONID'))
     p.add_argument("--check-session", action="store_true",
                    help=t("only check whether the session ID is logged in, then exit",
                           "chỉ kiểm tra session ID có đăng nhập được không rồi thoát"))
-    p.add_argument("--proxy", help=t("proxy for TikTok page requests, e.g. http://127.0.0.1:8080",
-                                     "proxy cho request trang TikTok, vd http://127.0.0.1:8080"))
+    p.add_argument("--proxy", help=t("proxy for page requests, e.g. http://127.0.0.1:8080",
+                                     "proxy cho request trang, vd http://127.0.0.1:8080"))
     p.add_argument("--lang", choices=("en", "vi"), default=console.LANG,
                    help=t("message language: en = English, vi = Vietnamese (default: auto)",
                           "ngôn ngữ thông báo: en = tiếng Anh, vi = tiếng Việt (mặc định: tự nhận)"))
@@ -110,10 +123,9 @@ def main() -> None:
     console.LANG = opts.lang
     console.init_colors(opts.color)
     opts.jobs = max(1, min(32, opts.jobs))
-    opts.connections = max(1, min(16, opts.connections))
-    opts.workers = max(1, min(16, opts.workers))
     opts.batch = max(1, opts.batch)
     opts.session_id = tiktok.resolve_session_id(opts.session_id)
+    opts.ig_session_id = instagram.resolve_session_id(opts.ig_session_id)
     if opts.check_session and not opts.session_id:
         p.error(t("--check-session needs a session ID: set TIKTOK_SESSIONID or add --session-id <sessionid>",
                   "--check-session cần session ID: đặt biến TIKTOK_SESSIONID hoặc thêm --session-id <sessionid>"))
@@ -172,9 +184,16 @@ def main() -> None:
                               "khác (tắt VPN, đổi kết nối) để tải tiếp; --session-id không giúp được trường hợp "
                               "này.")), err=True)
         sys.exit(1)
-    except RateLimited:
-        console.log("\n" + bold_red(t("✗ TikTok keeps refusing requests (HTTP 429/403), so the run stopped.",
-                               "✗ TikTok liên tục từ chối request (HTTP 429/403) nên tool đã dừng.")) + "\n"
+    except SiteStop as e:   # the site's own reason: a check to clear, an expired login, a limited account
+        console.log("\n" + bold_red(f"✗ {e}") + "\n"
+            + yellow(t("  The run stopped. Finished posts are kept: run the same command again to continue.",
+                       "  Tool đã dừng. Các bài đã xong vẫn được giữ: chạy lại đúng lệnh cũ để tải tiếp.")),
+            err=True)
+        sys.exit(1)
+    except RateLimited as e:
+        site, codes = e.site or "TikTok", e.codes or "429/403"
+        console.log("\n" + bold_red(t(f"✗ {site} keeps refusing requests (HTTP {codes}), so the run stopped.",
+                               f"✗ {site} liên tục từ chối request (HTTP {codes}) nên tool đã dừng.")) + "\n"
             + yellow(t("  Wait a while (or use a larger --wait / fewer --workers), then run the same "
                        "command again to continue.",
                        "  Hãy đợi một lúc (hoặc tăng --wait / giảm --workers), rồi chạy lại đúng lệnh cũ "

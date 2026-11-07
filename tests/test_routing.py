@@ -1,5 +1,5 @@
-"""Which site a target goes to (sites.find_site), Instagram and Facebook links failing with "not
-supported yet", and output folders per site (Site.folder). No test opens a link."""
+"""Which site a target goes to (sites.find_site), Facebook links and Instagram profiles failing with
+"not supported yet", and output folders per site (Site.folder). No test opens a link."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -171,19 +171,32 @@ def logged(monkeypatch):
     return lines
 
 
-@pytest.mark.parametrize(("url", "label"), [(INSTAGRAM_LINKS[0], "Instagram"), (FACEBOOK_LINKS[0], "Facebook"),
-                                            ("https://fb.watch/aBcD1234_x/", "Facebook")])
-def test_unsupported_link_fails_before_anything_is_written(tmp_path, url, label):
+IG_PROFILE = "https://www.instagram.com/some.user/"
+
+
+def ig_profile_message(target):
+    return ("Instagram profiles are not supported yet, only links to a reel or video post "
+            f"(instagram.com/reel/...): {target}")
+
+
+@pytest.mark.parametrize(("url", "message"), [
+    (FACEBOOK_LINKS[0], f"Facebook is not supported yet: {FACEBOOK_LINKS[0]}"),
+    ("https://fb.watch/aBcD1234_x/", "Facebook is not supported yet: https://fb.watch/aBcD1234_x/"),
+    (IG_PROFILE, ig_profile_message(IG_PROFILE)),
+])
+def test_unsupported_link_fails_before_anything_is_written(tmp_path, url, message):
+    # An Instagram profile fails before the login check too: this run has an Instagram cookie.
     with pytest.raises(ScrapeError) as e:
-        cli.scrape_profile(url, make_opts(tmp_path), None, None)
-    assert str(e.value) == f"{label} is not supported yet: {url}"
+        cli.scrape_profile(url, make_opts(tmp_path, ig_session_id="cookie"), None, None)
+    assert str(e.value) == message
     assert list(tmp_path.iterdir()) == []
 
 
 def test_unsupported_message_in_vietnamese(tmp_path, monkeypatch):
     monkeypatch.setattr(console, "LANG", "vi")
-    with pytest.raises(ScrapeError, match="^chưa hỗ trợ tải từ Instagram: https://www.instagram.com/p/x/$"):
-        cli.scrape_profile(" https://www.instagram.com/p/x/ ", make_opts(tmp_path), None, None)
+    with pytest.raises(ScrapeError, match="^chưa hỗ trợ tải cả profile Instagram, chỉ link reel hoặc bài video "
+                                          r"\(instagram.com/reel/...\): https://www.instagram.com/some.user/$"):
+        cli.scrape_profile(f" {IG_PROFILE} ", make_opts(tmp_path), None, None)
 
 
 @pytest.fixture
@@ -194,6 +207,8 @@ def run_main(monkeypatch, logged):
     monkeypatch.setattr(console, "_COLOR", console._COLOR)
     monkeypatch.setattr(tools, "find_tool", lambda name: None)
     monkeypatch.setattr(tools, "find_ffmpeg", lambda: None)
+    monkeypatch.delenv("TIKTOK_SESSIONID", raising=False)       # no TikTok session check
+    monkeypatch.delenv("INSTAGRAM_SESSIONID", raising=False)
     real_run = flow.run_profile
 
     def run(*args):
@@ -213,12 +228,12 @@ def run_main(monkeypatch, logged):
 
 
 def test_main_reports_unsupported_links_and_goes_on(run_main, logged, tmp_path):
-    ig, fb = INSTAGRAM_LINKS[0], FACEBOOK_LINKS[-1]
+    ig, fb = IG_PROFILE, FACEBOOK_LINKS[-1]
     code, tried = run_main(ig, fb, "@some.user", "-o", str(tmp_path))
     assert code == 1
     assert tried == [("instagram", ig), ("facebook", fb), ("tiktok", "@some.user")]
     errors = [line for line in logged if line.startswith("Error: ")]
-    assert errors == [f"Error: Instagram is not supported yet: {ig}", f"Error: Facebook is not supported yet: {fb}"]
+    assert errors == [f"Error: {ig_profile_message(ig)}", f"Error: Facebook is not supported yet: {fb}"]
     assert list(tmp_path.iterdir()) == []
 
 
@@ -289,7 +304,7 @@ def test_main_site_option(run_main, logged, tmp_path):
     assert code == 1
     assert tried == [("instagram", "@some.user")]   # the TikTok link fails before any site runs
     errors = [line for line in logged if line.startswith("Error: ")]
-    assert errors == ["Error: Instagram is not supported yet: @some.user",
+    assert errors == [f"Error: {ig_profile_message('@some.user')}",
                       f"Error: this link is for TikTok, not Instagram (--site instagram): {link}"]
     assert list(tmp_path.iterdir()) == []
 
