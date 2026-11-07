@@ -40,6 +40,13 @@ def test_script_runs_from_clone():
     assert result.stdout.strip() == f"tiktok-dl {source_version()}"
 
 
+def test_script_runs_without_its_folder_on_sys_path(tmp_path):
+    # -I (like -P or PYTHONSAFEPATH=1) leaves the script's folder off sys.path; the launcher adds it.
+    result = run(sys.executable, "-I", str(LAUNCHER), "--version", cwd=tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == f"tiktok-dl {source_version()}"
+
+
 def test_package_imports_from_clone():
     code = ("import tiktok_dl, tiktok_dl.cli; print(tiktok_dl.__version__); print(tiktok_dl.__file__); "
             "print(tiktok_dl.cli.main)")
@@ -126,9 +133,10 @@ def test_script_dir():
 
 def test_launcher_sets_tools_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(tools, "SCRIPT_DIR", tools.SCRIPT_DIR)   # restored afterwards
+    monkeypatch.setattr(sys, "path", list(sys.path))              # the launcher adds its folder
     copy = tmp_path / "tiktok-dl.py"
     shutil.copyfile(LAUNCHER, copy)
-    # run_name is not "__main__", so main() is not called. run_path does not change sys.path: the
+    # run_name is not "__main__", so main() is not called. tmp_path has no tiktok_dl folder, so the
     # launcher's imports find the package conftest already imported (clone or installed).
     runpy.run_path(str(copy))
     assert tools.SCRIPT_DIR == copy.resolve().parent   # resolved like the launcher does (Windows 8.3 / case)
