@@ -382,3 +382,17 @@ def test_ctrl_c_removes_failed_txt_when_nothing_fails(tdl, profile, monkeypatch,
     with pytest.raises(KeyboardInterrupt):
         tdl.scrape_profile("someuser", make_opts(tmp_path), None, None)
     assert not (out_dir / "failed.txt").exists()
+
+
+def test_ctrl_c_still_exits_as_ctrl_c_when_failed_txt_cannot_be_written(tdl, profile, monkeypatch, tmp_path):
+    def locked(*args, **kwargs):
+        raise PermissionError("failed.txt is open in another program")
+
+    def fake_download(session, tasks, jobs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(tdl, "write_failed_file", locked)
+    monkeypatch.setattr(tdl, "download_requests", fake_download)
+    monkeypatch.setattr(tdl, "finalize", lambda *args: pytest.fail("no post should be muxed"))
+    with pytest.raises(KeyboardInterrupt):
+        tdl.scrape_profile("someuser", make_opts(tmp_path), None, None)

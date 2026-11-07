@@ -262,7 +262,7 @@ def test_rate_limited_post_pages_stop_the_run_and_rebuild_failed_txt(tdl, tmp_pa
 
     failed = (out / "failed.txt").read_text(encoding="utf-8")
     assert "stale" not in failed
-    assert "stopped early" in failed and "keeps limiting requests" in failed
+    assert "stopped early" in failed and "keeps refusing requests (HTTP 429/403)" in failed
     progress = tdl.Progress(out / ".progress.db")
     try:
         errors = [pid for pid, *_ in progress.failures()]

@@ -525,8 +525,10 @@ class TikTok:
         if self._stopped:
             if self._challenge_stop:
                 raise ChallengeStop(challenge_message())
-            raise RateLimited(t("stopped, TikTok keeps limiting requests",
-                                "đã dừng, TikTok liên tục giới hạn request"))
+            raise RateLimited(t("TikTok keeps refusing requests (HTTP 429/403); wait a while, or use a "
+                                "larger --wait",
+                                "TikTok liên tục từ chối request (HTTP 429/403); hãy đợi một lúc hoặc "
+                                "tăng --wait"))
 
     def _throttle(self) -> None:
         with self._lock:
@@ -1507,6 +1509,8 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
                 try:
                     if interrupted:
                         write_failed_file(progress, out_dir, username)
+                except (OSError, sqlite3.Error):
+                    pass   # best effort: a locked failed.txt must not hide the Ctrl+C (exit 130)
                 finally:
                     progress.close()
 
