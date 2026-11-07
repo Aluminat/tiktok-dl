@@ -76,10 +76,10 @@ Option (b), with one module per site.
 - Four core messages still name TikTok, because their text must not change in this step: the
   rate-limit stop and warning in `core/pacing.py`, the `HTTP <code>, TikTok is limiting requests`
   read error, and `finalize`'s "smaller than the size TikTok reports". The issue that adds the
-  second site decides their wording.
+  second site decides their wording. (Done in issue #32: they name the site, see ADR 0003.)
 - The TikTok login flags (`--session-id`, `--check-session`, `TIKTOK_SESSIONID`) are handled by
   `cli` calling the TikTok module directly. How login works per site is decided when a second site
-  needs one.
+  needs one. (Done in issue #32: `Site.session()`, see ADR 0003.)
 - `scrape_profile()` stays as the CLI-level entry: `cli.scrape_profile()` picks the site and calls
   `core.flow.run_profile()`.
 - History of the moved code is reachable with `git log --follow -C -C` / `git blame -C -C`.

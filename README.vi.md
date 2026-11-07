@@ -5,7 +5,7 @@
 > [!WARNING]
 > **Dự án chỉ phục vụ mục đích học tập.** Không dùng để đăng lại hay bán nội dung của người khác.
 
-Tải toàn bộ video của một profile TikTok, kèm đầy đủ thông tin.
+Tải toàn bộ video của một profile TikTok, hoặc từng reel Instagram, kèm đầy đủ thông tin.
 
 - Tải nhanh bằng **aria2c**
 - **ffmpeg** gắn tiêu đề, tác giả, ngày đăng, mô tả, lượt xem, ảnh bìa, phụ đề vào từng file MP4
@@ -69,6 +69,7 @@ python tiktok-dl.py @username
 | `python tiktok-dl.py https://vt.tiktok.com/XXXXXXXXX/` | Link rút gọn copy từ app TikTok cũng được |
 | `python tiktok-dl.py @username --lang vi` | Hiện thông báo bằng tiếng Việt |
 | `python tiktok-dl.py @username --retry-all` | Thử lại cả bài đã xoá và bài quảng cáo / TikTok Shop mà các lần chạy lại bỏ qua |
+| `python tiktok-dl.py https://www.instagram.com/reel/XXXXXXXXXXX/` | Tải một reel Instagram (cần đăng nhập, xem [Instagram](#instagram)) |
 
 File được lưu trong `downloads/<username>/`.
 
@@ -82,15 +83,16 @@ Tool tự nhận ra link thuộc trang nào:
 | `instagram.com/<username>`, `.../reel/...`, `.../reels/...`, `.../p/...`, `.../tv/...` (cả `www.` và `m.`) | Instagram |
 | `facebook.com/reel/...`, `.../watch/?v=...`, `.../<page>/videos/...`, `.../<page>/reels/...`, `.../share/r/...`, `.../share/v/...` (cả `www.`, `m.` và `web.`), `fb.watch/...` | Facebook |
 
-**Instagram và Facebook chưa được hỗ trợ.** Tool nhận ra link của hai trang này, nhưng mỗi link sẽ
-báo lỗi "chưa hỗ trợ" rồi tool chuyển sang mục tiếp theo.
+**Instagram:** tải được link từng reel và bài video (xem [Instagram](#instagram)). Chưa hỗ trợ cả
+profile Instagram, bài ảnh và bài nhiều ảnh/video. **Facebook chưa được hỗ trợ.** Tool nhận ra link
+Facebook, nhưng mỗi link sẽ báo lỗi "chưa hỗ trợ" rồi tool chuyển sang mục tiếp theo.
 
 Không có `--site` thì `username` hoặc `@username` không kèm link được hiểu là TikTok, còn link của
 trang nào cũng được nhận. Khi có `--site instagram`, `--site facebook` hoặc `--site tiktok`, username
 thuộc trang đó và link phải thuộc đúng trang đó: link của trang khác sẽ báo lỗi, rồi tool chuyển
 sang mục tiếp theo.
 
-Mỗi tài khoản có một thư mục riêng (Instagram và Facebook sẽ dùng thư mục của mình khi được hỗ trợ):
+Mỗi tài khoản có một thư mục riêng (Facebook sẽ dùng thư mục của mình khi được hỗ trợ):
 
 | Trang | Thư mục |
 |---|---|
@@ -113,15 +115,17 @@ Chạy `python tiktok-dl.py -h` để xem tất cả tuỳ chọn.
 
 ## Tốc độ và giới hạn request
 
-Mặc định được để thấp để TikTok ít chặn hay đánh dấu tài khoản của bạn
-(càng nên cẩn thận khi dùng `--session-id`):
+Mặc định được để thấp để trang web ít chặn hay đánh dấu tài khoản của bạn
+(càng nên cẩn thận khi đã đăng nhập). Mỗi trang có mặc định riêng; các tuỳ chọn sẽ ghi đè:
 
-| Tuỳ chọn | Mặc định | Tác dụng |
-|---|---|---|
-| `-j`, `--jobs` | 16 | số file aria2c tải cùng lúc |
-| `-x`, `--connections` | 4 | số kết nối aria2c cho mỗi file (tối đa 16) |
-| `-w`, `--workers` | 8 | số luồng đọc trang bài đăng |
-| `--wait` | 0.3 | số giây giãn cách giữa các request trang TikTok |
+| Tuỳ chọn | TikTok | Instagram | Tác dụng |
+|---|---|---|---|
+| `-j`, `--jobs` | 16 | 16 | số file aria2c tải cùng lúc |
+| `-x`, `--connections` | 4 | 4 | số kết nối aria2c cho mỗi file (tối đa 16) |
+| `-w`, `--workers` | 8 | 1 | số luồng đọc trang bài đăng |
+| `--wait` | 0.3 | 3 | số giây giãn cách giữa các request trang |
+
+Mặc định của Instagram là ước lượng thận trọng, chưa đo đạc thực tế.
 
 Bạn có thể tăng lên, ví dụ `-x 8 --wait 0.1`, nhưng tải càng nhanh thì càng dễ bị chặn.
 
@@ -191,12 +195,64 @@ trong lịch sử lệnh. Nếu đặt cả hai thì `--session-id` được ưu
 > Nếu bạn đăng xuất TikTok thì session ID sẽ hết hiệu lực, cần copy lại cái mới.
 > Nên dùng **tài khoản phụ** cho an toàn.
 
+## Instagram
+
+Tải được link từng **reel** và **bài video**: `instagram.com/reel/...`, `.../reels/...`,
+`.../p/...` (khi bài chỉ có một video) và `.../tv/...`, kể cả khi có username phía trước
+(`instagram.com/<username>/reel/...`). Chưa hỗ trợ cả profile, bài ảnh và bài nhiều ảnh/video.
+Mỗi reel được lưu vào `downloads/instagram/<username>/`, cũng gắn metadata MP4, ghi `videos.csv`,
+`failed.txt` và tải tiếp được như TikTok.
+
+> [!WARNING]
+> Instagram chỉ tải được khi **đã đăng nhập**, bằng cookie `sessionid` của tài khoản, và **Meta có
+> thể khoá tài khoản tải tự động**. Hãy dùng **tài khoản phụ**, đừng dùng tài khoản chính.
+
+1. Mở https://www.instagram.com bằng **Chrome** hoặc **Edge** và đăng nhập (tài khoản phụ).
+2. Nhấn **F12**, vào **Application** → **Storage** → **Cookies** → `https://www.instagram.com`
+   (Firefox: tab **Storage** → **Cookies**).
+3. Gõ `sessionid` vào ô lọc và copy **Value** của dòng tên đúng là `sessionid`.
+4. Đặt nó vào biến môi trường `INSTAGRAM_SESSIONID`. Các lệnh dưới đây hỏi giá trị rồi bạn dán vào,
+   nên nó không bị lưu trong lịch sử lệnh:
+
+   PowerShell (Windows):
+   ```powershell
+   $env:INSTAGRAM_SESSIONID = Read-Host "sessionid"
+   ```
+   bash / zsh (Linux, macOS, Git Bash):
+   ```bash
+   read -rs -p "sessionid: " INSTAGRAM_SESSIONID && export INSTAGRAM_SESSIONID
+   ```
+   (zsh: `read -rs "INSTAGRAM_SESSIONID?sessionid: " && export INSTAGRAM_SESSIONID`)
+5. Tải:
+   ```bash
+   python tiktok-dl.py https://www.instagram.com/reel/XXXXXXXXXXX/
+   ```
+
+Dùng `--ig-session-id DAN_VAO_DAY` cũng được, nhưng sẽ bị lưu trong lịch sử lệnh; nó được ưu tiên hơn
+biến môi trường. Cookie chỉ được gửi tới instagram.com: không bao giờ được in ra, ghi vào file hay
+đưa cho aria2c. Không có cookie thì tool báo rõ và không gửi request nào.
+
+Tool hỏi Instagram từng bài giống cách trang web của Instagram làm, và chậm (3 giây giữa các request,
+mỗi lần một bài). Khi Instagram trả về:
+
+- **quá nhiều request (HTTP 429):** tool chậm lại rồi thử lại, như với TikTok.
+- **bước kiểm tra (`checkpoint_required` / `challenge_required`):** tool dừng ngay. Hãy mở Instagram
+  trên trình duyệt bằng đúng tài khoản đó và tự hoàn tất bước kiểm tra, rồi chạy lại đúng lệnh cũ.
+  Tool không bao giờ tự giải hay bỏ qua bước này.
+- **`login_required`:** tool dừng; cookie đã hết hạn hoặc sai, hãy copy cookie mới.
+- **`feedback_required`:** tool dừng; Instagram đang hạn chế tài khoản. Hãy đợi vài giờ hoặc một ngày.
+
+Bài đã xoá và bài tài khoản của bạn không xem được sẽ được ghi `(bỏ qua)` trong `failed.txt` (khi link
+có username, để tool biết thư mục) và các lần chạy lại sẽ bỏ qua chúng; thêm `--retry-all` để thử lại.
+Link `/reel/...` không có username sẽ được đọc một lần mỗi lần chạy để tìm thư mục của tác giả.
+
 ## Gặp lỗi?
 
 - **Không lấy được danh sách bài:** chạy `pip install -U yt-dlp`
 - **Vài bài bị lỗi:** xem file `failed.txt` trong thư mục tải (có link và lý do từng bài), rồi chạy lại đúng lệnh cũ
 - **Video quảng cáo / TikTok Shop bị lỗi:** TikTok không cung cấp link tải cho loại video này qua web, kể cả khi đã đăng nhập. Chúng được liệt kê trong `failed.txt` để bạn tự mở xem, và các lần chạy lại sẽ bỏ qua chúng (thêm `--retry-all` để thử lại)
 - **Tài khoản riêng tư:** đặt biến `TIKTOK_SESSIONID` (hoặc thêm `--session-id`), xem [Lấy session ID](#lấy-session-id-không-bắt-buộc)
+- **Instagram dừng với "qua bước kiểm tra", "chưa đăng nhập" hoặc "đang hạn chế tài khoản":** xem [Instagram](#instagram)
 - **"Lớp chống bot của TikTok đã chặn request (trang xác minh)":** TikTok trả về trang kiểm tra "Please wait..." thay vì trang thật. Tool không thử lại trường hợp này: nếu trang profile bị chặn, profile đó sẽ bị bỏ qua; nếu 3 trang bài đăng liên tiếp bị chặn, tool sẽ dừng (các bài đã xong vẫn được giữ và `failed.txt` ghi rõ lý do). Hãy thử lại sau hoặc dùng mạng khác (tắt VPN, đổi kết nối). `--session-id` không giúp được trường hợp này
 
 ## Đóng góp
