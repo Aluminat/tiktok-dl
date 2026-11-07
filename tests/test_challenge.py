@@ -173,6 +173,7 @@ def site(tdl, monkeypatch, clock, logged):
     class Site:
         pages: dict[str, str] = {}
         default = NO_DATA
+        default_status = 200   # status of pages not in `pages`
         requested: list[str] = []
 
     s = Site()
@@ -180,7 +181,9 @@ def site(tdl, monkeypatch, clock, logged):
 
     def get(self, url, timeout=None, **kw):
         s.requested.append(url)
-        return FakeResponse(200, s.pages.get(url, s.default))
+        if url in s.pages:
+            return FakeResponse(200, s.pages[url])
+        return FakeResponse(s.default_status, s.default)
 
     monkeypatch.setattr(requests.Session, "get", get)
     monkeypatch.setattr(tdl, "status", lambda *a, **k: None)
@@ -240,6 +243,34 @@ def test_challenged_post_pages_stop_the_run_and_keep_finished_posts(tdl, tmp_pat
     with pytest.raises(tdl.ChallengeStop):
         tdl.scrape_profile(f"@{USER}", opts(tmp_path), None, None)
     assert not any(pid in url for url in site.requested for pid in good)
+
+
+def test_rate_limited_post_pages_stop_the_run_and_rebuild_failed_txt(tdl, tmp_path, site, monkeypatch):
+    out = tmp_path / USER
+    out.mkdir()
+    (out / "failed.txt").write_text("stale list from an earlier run\n", encoding="utf-8")
+    site.pages[f"https://www.tiktok.com/@{USER}"] = profile_page()
+    good = POST_IDS[:2]
+    for pid in good:
+        site.pages[f"https://www.tiktok.com/@{USER}/video/{pid}"] = post_page(pid)
+    site.default_status = 429
+    monkeypatch.setattr(tdl, "list_posts", lambda *a, **k: [{"id": pid} for pid in POST_IDS])
+
+    with pytest.raises(tdl.RateLimited) as e:
+        tdl.scrape_profile(f"@{USER}", opts(tmp_path), None, None)
+    assert not isinstance(e.value, tdl.ChallengeStop)
+
+    failed = (out / "failed.txt").read_text(encoding="utf-8")
+    assert "stale" not in failed
+    assert "stopped early" in failed and "keeps limiting requests" in failed
+    progress = tdl.Progress(out / ".progress.db")
+    try:
+        errors = [pid for pid, *_ in progress.failures()]
+    finally:
+        progress.close()
+    assert errors and all(pid in failed for pid in errors)   # the posts refused before the stop
+    left = len(POST_IDS) - len(good) - len(errors)
+    assert f"{left} posts were not processed" in failed
 
 
 # --------------------------------------------------------------------------- #

@@ -97,7 +97,8 @@ You can raise them, for example `-x 8 --wait 0.1`, but going faster makes blocks
 If TikTok answers with HTTP 429 (too many requests) or 403 while reading pages, the tool shows one
 warning, pauses and retries with a longer wait each time (5, 10, 20 s), or waits as long as
 TikTok asks in its `Retry-After` header (up to 2 minutes). After 8 such answers in a row the tool
-stops instead of retrying every post (TikTok may have blocked your IP for a while). Wait a bit, then
+stops instead of retrying every post (TikTok may have blocked your IP for a while); finished posts
+are kept and `failed.txt` says why it stopped. Wait a bit, then
 run the same command again to continue; a larger `--wait` or fewer `--workers` helps.
 
 ## Failed downloads log
