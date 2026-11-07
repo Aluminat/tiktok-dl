@@ -18,7 +18,8 @@ ALL_SOURCES = sorted(PACKAGE.rglob("*.py")) + [LAUNCHER]
 SITE_SPECIFIC = [
     "tiktok.com", "__UNIVERSAL_DATA_FOR_REHYDRATION__", "__DEFAULT_SCOPE__", "_wafchallengeid", "waf-aiso",
     "itemStruct", "itemInfo", "userInfo", "playAddr", "PlayAddrStruct", "downloadAddr", "imagePost", "createTime",
-    "uniqueId", "statusCode", "subtitleInfos", "LanguageCodeName",
+    "uniqueId", "statusCode", "subtitleInfos", "LanguageCodeName", "webapp.", "aweme", "isECVideo",
+    "10204",   # TikTok's deleted-post code
 ]
 
 # Names tests replace with monkeypatch.setattr on their defining module (or module state they set).

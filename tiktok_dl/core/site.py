@@ -52,7 +52,11 @@ class Subtitle:
 @dataclass
 class Media:
     """What a post offers for download. Mirrors are tried one per attempt (they need not be copies of
-    one file)."""
+    one file).
+
+    `permanent` is the one way besides Verdict.PERMANENT (Site.classify) that a post is marked
+    "skipped": the post was read fine, but the site gives no download link and no re-run can change
+    that (e.g. TikTok ad / Shop videos). See docs/adr/0002."""
     video: list[str] = field(default_factory=list)
     sizes: dict[str, int] = field(default_factory=dict)   # reported size per video URL (missing = unknown)
     cover: Optional[str] = None

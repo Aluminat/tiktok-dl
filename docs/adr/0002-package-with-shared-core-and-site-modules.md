@@ -43,10 +43,14 @@ Option (b), with one module per site.
   | `referer` | the aria2c `--referer` value |
 
 - **Core rules.** The core never contains a site's URLs, page JSON keys or bot-protection
-  markers. A site's answers reach the core only as a `Verdict`: TikTok's challenge page is
-  `BLOCKED`, HTTP 429/403 is `RATE_LIMITED`, and a deleted post (status code 10204 in the page)
-  is `PERMANENT`. The core then runs backoff, streak stops, `failed.txt` and resume the same way
-  for every site. `tests/test_layout.py` checks the imports and the forbidden words.
+  markers. A site's answers to page reads and the errors of failed post reads reach the core
+  only as a `Verdict`: TikTok's challenge page is `BLOCKED`, HTTP 429/403 is `RATE_LIMITED`, and
+  a deleted post (status code 10204 in the page) is `PERMANENT`. The one other way a post is
+  marked "skipped" is `Media.permanent`, on purpose: the post was read fine (its metadata JSON
+  and CSV row are written, and `--metadata-only` records it as usual), but the site gives no
+  download link and no re-run can change that (TikTok ad / TikTok Shop videos). That is a fact
+  about the post's data, not an answer to classify, so `Post.media()` reports it. The core then
+  runs backoff, streak stops, `failed.txt` and resume the same way for every site. `tests/test_layout.py` checks the imports and the forbidden words.
 - **Tests import the package** (`tests/conftest.py` puts the clone first on `sys.path`, or uses the
   installed copy with `TIKTOK_DL_TEST_INSTALLED=1`). A helper that tests replace is called through
   its module (`console.log(...)`, `download.download_requests(...)`), never imported by name into
