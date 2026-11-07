@@ -204,3 +204,71 @@ def test_main_reports_unsupported_links_and_goes_on(run_main, logged, tmp_path):
     errors = [line for line in logged if line.startswith("Error: ")]
     assert errors == [f"Error: Instagram is not supported yet: {ig}", f"Error: Facebook is not supported yet: {fb}"]
     assert list(tmp_path.iterdir()) == []
+
+
+# --------------------------------------------------------------------------- #
+# --site
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.parametrize(
+    ("target", "name", "expected"),
+    [
+        ("some.user", None, tiktok.TikTokSite),
+        ("some.user", "tiktok", tiktok.TikTokSite),
+        ("@some.user", "instagram", instagram.InstagramSite),
+        ("SomePage", "facebook", facebook.FacebookSite),
+        ("https://www.tiktok.com/@some.user/video/1", "tiktok", tiktok.TikTokSite),
+        ("https://vt.tiktok.com/ZSabc/", "tiktok", tiktok.TikTokSite),
+        ("https://www.instagram.com/reel/C1a2B3c4D5e/", "instagram", instagram.InstagramSite),
+        ("https://fb.watch/aBcD1234_x/", "facebook", facebook.FacebookSite),
+    ],
+)
+def test_site_option_names_the_site_of_usernames(target, name, expected):
+    assert find_site(target, name) is expected
+
+
+@pytest.mark.parametrize(
+    ("target", "name", "message"),
+    [
+        ("https://www.tiktok.com/@some.user", "instagram",
+         "this link is for TikTok, not Instagram (--site instagram): https://www.tiktok.com/@some.user"),
+        (" https://www.instagram.com/p/x/ ", "tiktok",
+         "this link is for Instagram, not TikTok (--site tiktok): https://www.instagram.com/p/x/"),
+        ("https://fb.watch/abc/", "instagram",
+         "this link is for Facebook, not Instagram (--site instagram): https://fb.watch/abc/"),
+    ],
+)
+def test_link_from_another_site_than_the_site_option(target, name, message):
+    with pytest.raises(ScrapeError) as e:
+        find_site(target, name)
+    assert str(e.value) == message
+
+
+def test_site_mismatch_in_vietnamese(monkeypatch):
+    monkeypatch.setattr(console, "LANG", "vi")
+    with pytest.raises(ScrapeError) as e:
+        find_site("https://vt.tiktok.com/ZSabc/", "facebook")
+    assert str(e.value) == "link này của TikTok, không phải Facebook (--site facebook): https://vt.tiktok.com/ZSabc/"
+
+
+def test_main_site_option(run_main, logged, tmp_path):
+    link = "https://www.tiktok.com/@some.user"
+    code, tried = run_main("--site", "instagram", "@some.user", link, "-o", str(tmp_path))
+    assert code == 1
+    assert tried == [("instagram", "@some.user")]   # the TikTok link fails before any site runs
+    errors = [line for line in logged if line.startswith("Error: ")]
+    assert errors == ["Error: Instagram is not supported yet: @some.user",
+                      f"Error: this link is for TikTok, not Instagram (--site instagram): {link}"]
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_main_site_tiktok_is_the_default(run_main, logged):
+    assert run_main("--site", "tiktok", "some.user", "https://vm.tiktok.com/ZMabc/") == \
+        (0, [("tiktok", "some.user"), ("tiktok", "https://vm.tiktok.com/ZMabc/")])
+    assert not [line for line in logged if line.startswith("Error: ")]
+
+
+def test_main_rejects_an_unknown_site(run_main, capsys):
+    code, tried = run_main("--site", "youtube", "some.user")
+    assert code == 2 and tried == []
+    assert "invalid choice: 'youtube'" in capsys.readouterr().err

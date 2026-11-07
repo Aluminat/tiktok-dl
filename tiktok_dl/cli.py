@@ -13,12 +13,13 @@ from . import __version__
 from .core import console, flow, tools
 from .core.console import bold, bold_green, bold_red, gray, green, red, t, yellow
 from .core.errors import ChallengeStop, RateLimited, ScrapeError
-from .sites import find_site, tiktok
+from .sites import BY_NAME, find_site, tiktok
 
 
 def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str]) -> int:
-    """Download one profile or post with the site its link belongs to."""
-    return flow.run_profile(find_site(target), target, opts, aria2, ffmpeg)
+    """Download one profile or post with the site its link belongs to (or --site for a username)."""
+    # getattr: callers that build opts themselves (tests) may leave --site out.
+    return flow.run_profile(find_site(target, getattr(opts, "site", None)), target, opts, aria2, ffmpeg)
 
 
 def main() -> None:
@@ -42,6 +43,9 @@ def main() -> None:
     p.add_argument("targets", nargs="*", metavar="profile",
                    help=t("username, @username, profile link, video link or short link (several allowed)",
                           "username, @username, link profile, link video hoặc link rút gọn (có thể nhập nhiều)"))
+    p.add_argument("--site", choices=tuple(BY_NAME),
+                   help=t("the site usernames belong to (default: tiktok); links must be from this site",
+                          "username thuộc trang nào (mặc định: tiktok); link phải thuộc đúng trang này"))
     p.add_argument("-o", "--output", default="downloads",
                    help=t("root folder to save into (default: downloads)", "thư mục gốc để lưu (mặc định: downloads)"))
     p.add_argument("-n", "--limit", type=int, help=t("only the N newest posts", "chỉ lấy N bài mới nhất"))
