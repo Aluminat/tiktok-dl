@@ -14,7 +14,6 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
-from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urljoin
@@ -44,6 +43,8 @@ from .core.console import (
     yellow,
 )
 from .core.errors import Challenged, ChallengeStop, RateLimited, ScrapeError
+from .core.pacing import PageReader
+from .core.site import Verdict
 from .core.stop import STOP, wait_result
 from .core.util import UA, sanitize, to_int, uniq
 
@@ -121,47 +122,14 @@ def base_name(item: dict) -> str:
 # TikTok web client
 # --------------------------------------------------------------------------- #
 
-# Page reads answered with HTTP 429 (or 403) back off: wait as long as Retry-After says when
-# TikTok sends it, otherwise BACKOFF_BASE seconds, doubled on each retry (5, 10, 20 s).
-# Both are capped at BACKOFF_MAX, which limits one pause, not the run. The run stops after
-# RATE_LIMIT_STREAK rate-limited answers in a row (any thread, no other answer between), so a
-# blocked IP fails fast instead of retrying every post for hours.
+# Page reads TikTok answers with these HTTP codes are rate-limited: core/pacing.py backs off.
 RATE_LIMIT_CODES = (403, 429)
-BACKOFF_BASE = 5.0
-BACKOFF_MAX = 120.0
-RATE_LIMIT_STREAK = 8
-
-
-def retry_after_seconds(value: Optional[str], now: Optional[datetime] = None) -> Optional[float]:
-    """Seconds to wait from a Retry-After header (a number of seconds or an HTTP date), or None."""
-    if not value:
-        return None
-    value = value.strip()
-    try:
-        return max(0.0, float(value))
-    except ValueError:
-        pass
-    try:
-        when = parsedate_to_datetime(value)
-    except (TypeError, ValueError):
-        return None
-    if when.tzinfo is None:
-        when = when.replace(tzinfo=timezone.utc)
-    return max(0.0, (when - (now or datetime.now(timezone.utc))).total_seconds())
-
-
-def backoff_delay(attempt: int, retry_after: Optional[float] = None) -> float:
-    """Seconds to pause page reads after the attempt-th (0-based) rate-limited response."""
-    delay = retry_after if retry_after is not None else BACKOFF_BASE * 2 ** attempt
-    return min(BACKOFF_MAX, delay)
-
 
 # TikTok's bot protection (WAF) may answer a page read with a small (~1.4 KB) "Please wait..." page
 # that runs a challenge script (waf-aiso) instead of the real page. We only detect it, never solve it.
 # It does not clear within seconds, so it is not retried; CHALLENGE_STREAK such answers in a row stop
 # the run.
 CHALLENGE_MARKERS = ("_wafchallengeid", "waf-aiso")
-CHALLENGE_STREAK = 3
 
 
 def is_challenge_page(html: str) -> bool:
@@ -169,9 +137,31 @@ def is_challenge_page(html: str) -> bool:
     return any(m in html for m in CHALLENGE_MARKERS) and not REHYDRATION_RE.search(html)
 
 
-class TikTok:
+def page_data(html: str, scope: str) -> Optional[dict]:
+    """The `scope` object from a page's embedded rehydration JSON, or None."""
+    m = REHYDRATION_RE.search(html)
+    if m:
+        data = json.loads(m.group(1)).get("__DEFAULT_SCOPE__", {}).get(scope)
+        if isinstance(data, dict):
+            return data
+    return None
+
+
+def classify(answer) -> Verdict:
+    """What one TikTok answer means for the run: the HTTP response to a page read, or the
+    ScrapeError a post read failed with (TikTok reports deleted posts inside the page data)."""
+    if isinstance(answer, ScrapeError):
+        return Verdict.PERMANENT if answer.code in PERMANENT_POST_CODES else Verdict.OK
+    if is_challenge_page(answer.text):
+        return Verdict.BLOCKED
+    if answer.status_code in RATE_LIMIT_CODES:
+        return Verdict.RATE_LIMITED
+    return Verdict.OK
+
+
+class TikTok(PageReader):
     def __init__(self, session_id: Optional[str] = None, wait: float = 0.3, proxy: Optional[str] = None):
-        self.s = requests.Session()
+        super().__init__(wait)
         self.s.headers.update({
             "User-Agent": UA,
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -184,107 +174,14 @@ class TikTok:
         if session_id:
             for name in ("sessionid", "sessionid_ss", "sid_tt"):
                 self.s.cookies.set(name, session_id, domain=".tiktok.com")
-        self.wait = wait
-        self._lock = threading.Lock()
-        self._last = 0.0
-        # Backoff after HTTP 429/403, shared by all metadata threads.
-        self._backoff_lock = threading.Lock()
-        self._pause_until = 0.0
-        self._warned = False
-        self._streak = 0          # rate-limited answers in a row
-        self._stopped = False     # set when the streak is too long or the run is stopping
-        self._challenges = 0      # challenge-page answers in a row
-        self._challenge_stop = False  # stopped because of the challenge page
 
-    def stop(self) -> None:
-        """Make queued and waiting page reads give up at once (run aborted or interrupted)."""
-        self._stopped = True
+    classify = staticmethod(classify)
 
-    def _check_stopped(self) -> None:
-        if self._stopped:
-            if self._challenge_stop:
-                raise ChallengeStop(challenge_message())
-            raise RateLimited(t("TikTok keeps refusing requests (HTTP 429/403); wait a while, or use a "
-                                "larger --wait",
-                                "TikTok liên tục từ chối request (HTTP 429/403); hãy đợi một lúc hoặc "
-                                "tăng --wait"))
-
-    def _throttle(self) -> None:
-        with self._lock:
-            # Keep the --wait gap between requests and honour any backoff pause. Check again
-            # after sleeping, as another thread may have extended the pause meanwhile. Sleep in
-            # short slices so a stopped run does not sit out a long pause.
-            while True:
-                self._check_stopped()
-                delay = max(self._last + self.wait, self._pause_until) - time.monotonic()
-                if delay <= 0:
-                    break
-                time.sleep(min(delay, 1.0))
-            self._last = time.monotonic()
-
-    def _rate_limited(self, r: requests.Response, attempt: int, retry: bool) -> None:
-        """Count a 429/403 answer: stop the run after too many in a row, else pause if retrying."""
-        with self._backoff_lock:
-            self._streak += 1
-            self._challenges = 0
-            if self._streak >= RATE_LIMIT_STREAK:
-                self._stopped = True
-        self._check_stopped()
-        if retry:
-            self._back_off(r, attempt)
-
-    def _challenged(self) -> None:
-        """Count a challenge-page answer and raise at once: no retry, no backoff pause."""
-        with self._backoff_lock:
-            self._streak = 0
-            self._challenges += 1
-            if self._challenges >= CHALLENGE_STREAK and not self._stopped:
-                self._stopped = self._challenge_stop = True
-        self._check_stopped()
-        raise Challenged(challenge_message())
-
-    def _back_off(self, r: requests.Response, attempt: int) -> None:
-        """Pause every page read after a rate-limited response; warn the user the first time."""
-        delay = backoff_delay(attempt, retry_after_seconds(r.headers.get("Retry-After")))
-        with self._backoff_lock:
-            self._pause_until = max(self._pause_until, time.monotonic() + delay)
-            first, self._warned = not self._warned, True
-        if first:
-            code = r.status_code
-            console.log(warn(t(f"TikTok is limiting requests (HTTP {code}). Slowing down and retrying; "
-                       "if it keeps happening, use a larger --wait or fewer --workers.",
-                       f"TikTok đang giới hạn request (HTTP {code}). Tool sẽ chậm lại rồi thử lại; "
-                       "nếu vẫn bị, hãy tăng --wait hoặc giảm --workers.")))
+    def blocked_message(self) -> str:
+        return challenge_message()
 
     def _scope(self, url: str, scope: str) -> dict:
-        last = t("no response", "không có phản hồi")
-        attempts = 4
-        for attempt in range(attempts):
-            self._throttle()
-            try:
-                r = self.s.get(url, timeout=25)
-                if is_challenge_page(r.text):
-                    self._challenged()  # raises: retrying within seconds won't get past it
-                if r.status_code in RATE_LIMIT_CODES:
-                    # No pause after the last attempt: nothing retries it.
-                    self._rate_limited(r, attempt, retry=attempt + 1 < attempts)
-                    last = t(f"HTTP {r.status_code}, TikTok is limiting requests",
-                             f"HTTP {r.status_code}, TikTok đang giới hạn request")
-                    continue  # the backoff pause replaces the fixed retry delay below
-                with self._backoff_lock:
-                    self._streak = 0
-                    self._challenges = 0
-                m = REHYDRATION_RE.search(r.text)
-                if m:
-                    data = json.loads(m.group(1)).get("__DEFAULT_SCOPE__", {}).get(scope)
-                    if isinstance(data, dict):
-                        return data
-                last = t(f"HTTP {r.status_code}, page has no data", f"HTTP {r.status_code}, trang không có dữ liệu")
-            except (requests.RequestException, ValueError, AttributeError) as e:
-                last = str(e)
-            if attempt + 1 >= attempts or STOP.wait(1 + 2 * attempt):   # no wait after the last attempt
-                break
-        raise ScrapeError(last)
+        return self.read(url, lambda r: page_data(r.text, scope))
 
     @staticmethod
     def _check(data: dict) -> None:
@@ -322,9 +219,6 @@ class TikTok:
         data = self._scope("https://www.tiktok.com/explore", "webapp.app-context")
         user = data.get("user") or {}
         return user if user.get("uniqueId") else None
-
-    def cookie_header(self) -> str:
-        return "; ".join(f"{c.name}={c.value}" for c in self.s.cookies)
 
 
 def list_posts(username: str, limit: Optional[int], cookiefile: Optional[str]) -> list[dict]:

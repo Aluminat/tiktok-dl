@@ -7,7 +7,7 @@ import json
 import pytest
 import requests
 
-from tiktok_dl.core import console, tools
+from tiktok_dl.core import console, pacing, tools
 from tiktok_dl.core.errors import Challenged, ChallengeStop, RateLimited, ScrapeError
 from tiktok_dl.core.stop import STOP
 
@@ -57,8 +57,8 @@ def clock(tdl, monkeypatch):
 
     c = Clock()
     c.sleeps = []
-    monkeypatch.setattr(tdl.time, "monotonic", c.monotonic)
-    monkeypatch.setattr(tdl.time, "sleep", c.sleep)
+    monkeypatch.setattr(pacing.time, "monotonic", c.monotonic)
+    monkeypatch.setattr(pacing.time, "sleep", c.sleep)
     monkeypatch.setattr(STOP, "wait", c.wait)
     return c
 
@@ -123,26 +123,26 @@ def test_page_without_data_then_success(tdl, clock, logged):
 
 
 def test_challenge_streak_stops_the_run(tdl, clock, logged):
-    tt = client(tdl, [FakeResponse(200, CHALLENGE)] * tdl.CHALLENGE_STREAK)
-    for _ in range(tdl.CHALLENGE_STREAK - 1):
+    tt = client(tdl, [FakeResponse(200, CHALLENGE)] * pacing.CHALLENGE_STREAK)
+    for _ in range(pacing.CHALLENGE_STREAK - 1):
         with pytest.raises(Challenged):
             tt.whoami()
     with pytest.raises(ChallengeStop) as e:
         tt.whoami()
     assert "bot protection" in str(e.value)
-    assert tt.requests == tdl.CHALLENGE_STREAK
+    assert tt.requests == pacing.CHALLENGE_STREAK
 
     # Every later read gives up at once with the challenge reason: no request, no sleep.
     with pytest.raises(ChallengeStop):
         tt.whoami()
     with pytest.raises(ChallengeStop):
         tt._throttle()
-    assert tt.requests == tdl.CHALLENGE_STREAK
+    assert tt.requests == pacing.CHALLENGE_STREAK
     assert clock.sleeps == []
 
 
 def test_any_other_answer_resets_the_challenge_streak(tdl, clock, logged):
-    n = tdl.CHALLENGE_STREAK - 1
+    n = pacing.CHALLENGE_STREAK - 1
     tt = client(tdl, [FakeResponse(200, CHALLENGE)] * n + [FakeResponse(200, PAGE)]
                 + [FakeResponse(200, CHALLENGE)] * n)
     for _ in range(n):
@@ -230,14 +230,14 @@ def test_challenged_post_pages_stop_the_run_and_keep_finished_posts(tdl, tmp_pat
         tdl.scrape_profile(f"@{USER}", opts(tmp_path), None, None)
 
     # One read per post, no retries: profile + good posts + the challenge streak, then stop.
-    assert len(site.requested) == 1 + len(good) + tdl.CHALLENGE_STREAK
+    assert len(site.requested) == 1 + len(good) + pacing.CHALLENGE_STREAK
     out = tmp_path / USER
     for pid in good:
         assert (out / "metadata" / f"{pid}.json").exists()
     failed = (out / "failed.txt").read_text(encoding="utf-8")
     assert "stopped early" in failed and "bot protection" in failed
     # The challenged posts before the stop are listed; the rest were not tried.
-    challenged = POST_IDS[len(good):len(good) + tdl.CHALLENGE_STREAK - 1]
+    challenged = POST_IDS[len(good):len(good) + pacing.CHALLENGE_STREAK - 1]
     assert all(pid in failed for pid in challenged)
     left = len(POST_IDS) - len(good) - len(challenged)
     assert f"{left} posts were not processed" in failed

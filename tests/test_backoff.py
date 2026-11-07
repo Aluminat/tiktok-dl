@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from tiktok_dl.core import console
+from tiktok_dl.core import console, pacing
 from tiktok_dl.core.errors import RateLimited, ScrapeError
 
 PAGE = ('<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">'
@@ -37,8 +37,8 @@ def clock(tdl, monkeypatch):
 
     c = Clock()
     c.sleeps = []
-    monkeypatch.setattr(tdl.time, "monotonic", c.monotonic)
-    monkeypatch.setattr(tdl.time, "sleep", c.sleep)
+    monkeypatch.setattr(pacing.time, "monotonic", c.monotonic)
+    monkeypatch.setattr(pacing.time, "sleep", c.sleep)
     return c
 
 
@@ -56,7 +56,7 @@ def client(tdl, responses, wait=0.0):
     tt.requested_at = []
 
     def get(url, timeout=None):
-        tt.requested_at.append(tdl.time.monotonic())
+        tt.requested_at.append(pacing.time.monotonic())
         return queue.pop(0)
 
     tt.s.get = get
@@ -86,7 +86,7 @@ def test_retry_after_seconds_is_honoured(tdl, clock, logged):
 def test_retry_after_is_capped(tdl, clock, logged):
     tt = client(tdl, [FakeResponse(429, headers={"Retry-After": "86400"}), FakeResponse(200, PAGE)])
     tt.whoami()
-    assert gaps(tt) == [tdl.BACKOFF_MAX]
+    assert gaps(tt) == [pacing.BACKOFF_MAX]
 
 
 def test_403_backs_off_too(tdl, clock, logged):
@@ -125,23 +125,23 @@ def test_pause_is_shared_by_later_requests(tdl, clock, logged):
 
 def test_run_stops_after_too_many_rate_limited_answers_in_a_row(tdl, clock, logged):
     """A blocked IP must fail fast, not retry every post for hours."""
-    tt = client(tdl, [FakeResponse(429)] * tdl.RATE_LIMIT_STREAK)
+    tt = client(tdl, [FakeResponse(429)] * pacing.RATE_LIMIT_STREAK)
     with pytest.raises(ScrapeError):   # first post: 4 attempts, then a normal failure
         tt.whoami()
     with pytest.raises(RateLimited):   # the streak reaches the limit on the next post
         tt.whoami()
-    assert len(tt.requested_at) == tdl.RATE_LIMIT_STREAK
+    assert len(tt.requested_at) == pacing.RATE_LIMIT_STREAK
 
     # Every later read gives up at once: no request, no sleep.
     clock.sleeps.clear()
     with pytest.raises(RateLimited):
         tt.whoami()
-    assert len(tt.requested_at) == tdl.RATE_LIMIT_STREAK
+    assert len(tt.requested_at) == pacing.RATE_LIMIT_STREAK
     assert clock.sleeps == []
 
 
 def test_any_other_answer_resets_the_streak(tdl, clock, logged):
-    n = tdl.RATE_LIMIT_STREAK - 1
+    n = pacing.RATE_LIMIT_STREAK - 1
     tt = client(tdl, [FakeResponse(429)] * 3 + [FakeResponse(200, PAGE)] + [FakeResponse(429)] * n
                 + [FakeResponse(200, PAGE)])
     tt._streak = n - 3   # earlier rate-limited answers from other posts
@@ -196,10 +196,10 @@ def test_normal_requests_keep_the_wait_gap(tdl, clock, logged):
 )
 def test_retry_after_seconds(tdl, value, expected):
     now = datetime(2026, 11, 7, 12, 0, 0, tzinfo=timezone.utc)
-    assert tdl.retry_after_seconds(value, now) == expected
+    assert pacing.retry_after_seconds(value, now) == expected
 
 
 def test_backoff_delay(tdl):
-    assert [tdl.backoff_delay(a) for a in range(6)] == [5.0, 10.0, 20.0, 40.0, 80.0, 120.0]
-    assert tdl.backoff_delay(3, retry_after=1.0) == 1.0
-    assert tdl.backoff_delay(0, retry_after=1e9) == tdl.BACKOFF_MAX
+    assert [pacing.backoff_delay(a) for a in range(6)] == [5.0, 10.0, 20.0, 40.0, 80.0, 120.0]
+    assert pacing.backoff_delay(3, retry_after=1.0) == 1.0
+    assert pacing.backoff_delay(0, retry_after=1e9) == pacing.BACKOFF_MAX
