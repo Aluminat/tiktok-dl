@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 
+from tiktok_dl.sites import tiktok
+
 VIDEO_ITEM = {
     "id": "7300000000000000001",
     "createTime": "1700000000",
@@ -48,8 +50,8 @@ SLIDE_ITEM = {
 }
 
 
-def test_flatten_video(tdl):
-    row = tdl.flatten(VIDEO_ITEM)
+def test_flatten_video():
+    row = tiktok.flatten(VIDEO_ITEM)
     assert row["id"] == "7300000000000000001"
     assert row["url"] == "https://www.tiktok.com/@tiktok/video/7300000000000000001"
     assert row["type"] == "video"
@@ -78,15 +80,15 @@ def test_flatten_video(tdl):
     assert json.loads(row["warn_info"]) == [{"text": "Sensitive"}]
 
 
-def test_flatten_slideshow(tdl):
-    row = tdl.flatten(SLIDE_ITEM)
+def test_flatten_slideshow():
+    row = tiktok.flatten(SLIDE_ITEM)
     assert row["type"] == "slide"
     assert row["image_count"] == 3
     assert row["url"] == "https://www.tiktok.com/@photos/video/7300000000000000002"
 
 
-def test_flatten_minimal_item(tdl):
-    row = tdl.flatten({"id": "1"})
+def test_flatten_minimal_item():
+    row = tiktok.flatten({"id": "1"})
     assert row["type"] == "video"
     assert row["username"] == ""
     assert row["created"] == "1970-01-01T00:00:00+00:00"
@@ -98,8 +100,8 @@ def test_flatten_minimal_item(tdl):
     assert row["duet_enabled"] is False
 
 
-def test_flatten_columns_are_stable(tdl):
+def test_flatten_columns_are_stable():
     # videos.csv uses the keys as its header, so every row must have the same columns.
-    columns = list(tdl.flatten(VIDEO_ITEM))
-    assert list(tdl.flatten(SLIDE_ITEM)) == columns
-    assert list(tdl.flatten({"id": "1"})) == columns
+    columns = list(tiktok.flatten(VIDEO_ITEM))
+    assert list(tiktok.flatten(SLIDE_ITEM)) == columns
+    assert list(tiktok.flatten({"id": "1"})) == columns

@@ -12,6 +12,11 @@ import types
 import pytest
 import requests
 
+from tiktok_dl import cli
+from tiktok_dl.core import download, mux
+from tiktok_dl.core.errors import ScrapeError
+from tiktok_dl.sites import tiktok
+
 USER = "someone"
 GOOD_IDS = ["7300000000000000001", "7300000000000000003"]
 BAD_ID = "7300000000000000002"
@@ -68,7 +73,7 @@ def post_url(pid: str) -> str:
 
 
 @pytest.fixture
-def run(tdl, tmp_path, monkeypatch):
+def run(tmp_path, monkeypatch):
     """Run scrape_profile on a 3-post profile; `pages` overrides the mocked page per URL."""
     def fake_download(session, tasks, jobs):
         for _, dest, _ in tasks:
@@ -76,8 +81,8 @@ def run(tdl, tmp_path, monkeypatch):
             dest.write_bytes(FAKE_MP4)
 
     entries = [{"id": pid} for pid in (GOOD_IDS[0], BAD_ID, GOOD_IDS[1])]
-    monkeypatch.setattr(tdl, "list_posts", lambda username, limit, cookiefile: entries)
-    monkeypatch.setattr(tdl, "download_requests", fake_download)
+    monkeypatch.setattr(tiktok, "list_posts", lambda username, limit, cookiefile: entries)
+    monkeypatch.setattr(download, "download_requests", fake_download)
     opts = types.SimpleNamespace(
         output=str(tmp_path), session_id=None, wait=0, proxy=None, limit=None, metadata_only=False,
         workers=2, batch=50, mux_jobs=1, jobs=2, connections=1, cover=False, subs="none",
@@ -90,7 +95,7 @@ def run(tdl, tmp_path, monkeypatch):
             pages[post_url(pid)] = video_page({"itemStruct": good_item(pid)})
         pages[post_url(BAD_ID)] = bad_page if bad_page is not None else video_page({"itemStruct": good_item(BAD_ID)})
         mock_pages(monkeypatch, pages)
-        return tdl.scrape_profile(USER, opts, None, None)
+        return cli.scrape_profile(USER, opts, None, None)
 
     return go, tmp_path / USER
 
@@ -114,16 +119,16 @@ def assert_good_posts_downloaded(out_dir):
     [None, {}, {"itemStruct": None}, {"itemStruct": {}}, {"itemStruct": "oops"}, ["not", "a", "dict"]],
     ids=["no-itemInfo", "no-itemStruct", "null-itemStruct", "empty-itemStruct", "string-itemStruct", "list"],
 )
-def test_item_missing_keys_raise_scrape_error(tdl, monkeypatch, item_info):
+def test_item_missing_keys_raise_scrape_error(monkeypatch, item_info):
     mock_pages(monkeypatch, {post_url(BAD_ID): video_page(item_info)})
-    with pytest.raises(tdl.ScrapeError, match="unexpected page format"):
-        tdl.TikTok(wait=0).item(USER, BAD_ID)
+    with pytest.raises(ScrapeError, match="unexpected page format"):
+        tiktok.TikTok(wait=0).item(USER, BAD_ID)
 
 
-def test_user_missing_user_info_raises_scrape_error(tdl, monkeypatch):
+def test_user_missing_user_info_raises_scrape_error(monkeypatch):
     mock_pages(monkeypatch, {f"https://www.tiktok.com/@{USER}": user_page(with_user_info=False)})
-    with pytest.raises(tdl.ScrapeError, match="unexpected page format"):
-        tdl.TikTok(wait=0).user(USER)
+    with pytest.raises(ScrapeError, match="unexpected page format"):
+        tiktok.TikTok(wait=0).user(USER)
 
 
 def test_post_page_without_item_struct_fails_one_post(run, capsys):
@@ -167,16 +172,16 @@ def test_profile_page_without_user_info_warns_and_continues(run, capsys):
     assert "Traceback" not in out + err
 
 
-def test_unexpected_error_while_finalizing_fails_one_post(tdl, run, monkeypatch, capsys):
+def test_unexpected_error_while_finalizing_fails_one_post(run, monkeypatch, capsys):
     go, out_dir = run
-    real_finalize = tdl.finalize
+    real_finalize = mux.finalize
 
     def flaky_finalize(post, *args, **kwargs):
         if post.id == BAD_ID:
             raise RuntimeError("boom")
         return real_finalize(post, *args, **kwargs)
 
-    monkeypatch.setattr(tdl, "finalize", flaky_finalize)
+    monkeypatch.setattr(mux, "finalize", flaky_finalize)
     failed = go()
     out, err = capsys.readouterr()
 

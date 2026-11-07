@@ -4,6 +4,9 @@ from __future__ import annotations
 import pytest
 import requests
 
+from tiktok_dl.core.errors import ScrapeError
+from tiktok_dl.sites import tiktok
+
 
 @pytest.mark.parametrize(
     ("text", "expected"),
@@ -23,8 +26,8 @@ import requests
         ("HTTPS://WWW.TIKTOK.COM/@TikTok/VIDEO/123", ("TikTok", "123")),
     ],
 )
-def test_parse_target(tdl, text, expected):
-    assert tdl.parse_target(text) == expected
+def test_parse_target(text, expected):
+    assert tiktok.parse_target(text) == expected
 
 
 @pytest.mark.parametrize(
@@ -38,20 +41,20 @@ def test_parse_target(tdl, text, expected):
         "a" * 65,
     ],
 )
-def test_parse_target_invalid(tdl, text):
-    with pytest.raises(tdl.ScrapeError):
-        tdl.parse_target(text)
+def test_parse_target_invalid(text):
+    with pytest.raises(ScrapeError):
+        tiktok.parse_target(text)
 
 
-def test_parse_target_expands_short_link(tdl, monkeypatch):
+def test_parse_target_expands_short_link(monkeypatch):
     seen = []
 
     def fake_resolve(text):
         seen.append(text)
         return "https://www.tiktok.com/@tiktok/video/123?_r=1"
 
-    monkeypatch.setattr(tdl, "resolve_short_link", fake_resolve)
-    assert tdl.parse_target(" https://vt.tiktok.com/ZSabc123/ ") == ("tiktok", "123")
+    monkeypatch.setattr(tiktok, "resolve_short_link", fake_resolve)
+    assert tiktok.parse_target(" https://vt.tiktok.com/ZSabc123/ ") == ("tiktok", "123")
     assert seen == ["https://vt.tiktok.com/ZSabc123/"]
 
 
@@ -69,70 +72,70 @@ def fake_get(responses, calls):
     return get
 
 
-def test_resolve_short_link_follows_redirects(tdl, monkeypatch):
+def test_resolve_short_link_follows_redirects(monkeypatch):
     final = "https://www.tiktok.com/@tiktok/video/123?_r=1"
     responses = {
         "https://vt.tiktok.com/ZSabc123/": FakeResponse("https://www.tiktok.com/t/ZSabc123/"),
         "https://www.tiktok.com/t/ZSabc123/": FakeResponse(final),
     }
     calls = []
-    monkeypatch.setattr(tdl.requests, "get", fake_get(responses, calls))
-    assert tdl.resolve_short_link("https://vt.tiktok.com/ZSabc123/") == final
+    monkeypatch.setattr(tiktok.requests, "get", fake_get(responses, calls))
+    assert tiktok.resolve_short_link("https://vt.tiktok.com/ZSabc123/") == final
     assert calls == ["https://vt.tiktok.com/ZSabc123/", "https://www.tiktok.com/t/ZSabc123/"]
 
 
-def test_resolve_short_link_adds_scheme(tdl, monkeypatch):
+def test_resolve_short_link_adds_scheme(monkeypatch):
     final = "https://www.tiktok.com/@tiktok"
     calls = []
-    monkeypatch.setattr(tdl.requests, "get", fake_get({"https://vm.tiktok.com/ZMabc/": FakeResponse(final)}, calls))
-    assert tdl.resolve_short_link("vm.tiktok.com/ZMabc/") == final
+    monkeypatch.setattr(tiktok.requests, "get", fake_get({"https://vm.tiktok.com/ZMabc/": FakeResponse(final)}, calls))
+    assert tiktok.resolve_short_link("vm.tiktok.com/ZMabc/") == final
     assert calls == ["https://vm.tiktok.com/ZMabc/"]
 
 
 @pytest.mark.parametrize("text", ["tiktok", "@tiktok", "https://www.tiktok.com/@tiktok/video/1"])
-def test_resolve_short_link_leaves_other_text(tdl, monkeypatch, text):
-    monkeypatch.setattr(tdl.requests, "get", fake_get({}, []))
-    assert tdl.resolve_short_link(text) == text
+def test_resolve_short_link_leaves_other_text(monkeypatch, text):
+    monkeypatch.setattr(tiktok.requests, "get", fake_get({}, []))
+    assert tiktok.resolve_short_link(text) == text
 
 
-def test_resolve_short_link_without_redirect(tdl, monkeypatch):
-    monkeypatch.setattr(tdl.requests, "get", fake_get({"https://vt.tiktok.com/ZSabc/": FakeResponse()}, []))
-    with pytest.raises(tdl.ScrapeError):
-        tdl.resolve_short_link("https://vt.tiktok.com/ZSabc/")
+def test_resolve_short_link_without_redirect(monkeypatch):
+    monkeypatch.setattr(tiktok.requests, "get", fake_get({"https://vt.tiktok.com/ZSabc/": FakeResponse()}, []))
+    with pytest.raises(ScrapeError):
+        tiktok.resolve_short_link("https://vt.tiktok.com/ZSabc/")
 
 
-def test_resolve_short_link_network_error(tdl, monkeypatch):
+def test_resolve_short_link_network_error(monkeypatch):
     def broken(url, **kwargs):
         raise requests.ConnectionError("offline")
 
-    monkeypatch.setattr(tdl.requests, "get", broken)
-    with pytest.raises(tdl.ScrapeError):
-        tdl.resolve_short_link("https://vt.tiktok.com/ZSabc/")
+    monkeypatch.setattr(tiktok.requests, "get", broken)
+    with pytest.raises(ScrapeError):
+        tiktok.resolve_short_link("https://vt.tiktok.com/ZSabc/")
 
 
-def test_resolve_short_link_relative_redirect_to_post(tdl, monkeypatch):
+def test_resolve_short_link_relative_redirect_to_post(monkeypatch):
     calls = []
     responses = {"https://vt.tiktok.com/ZSabc123/": FakeResponse("/@tiktok/video/123?_r=1")}
-    monkeypatch.setattr(tdl.requests, "get", fake_get(responses, calls))
-    resolved = tdl.resolve_short_link("https://vt.tiktok.com/ZSabc123/")
+    monkeypatch.setattr(tiktok.requests, "get", fake_get(responses, calls))
+    resolved = tiktok.resolve_short_link("https://vt.tiktok.com/ZSabc123/")
     assert resolved == "https://vt.tiktok.com/@tiktok/video/123?_r=1"
-    assert tdl.parse_target(resolved) == ("tiktok", "123")
+    assert tiktok.parse_target(resolved) == ("tiktok", "123")
 
 
-def test_resolve_short_link_relative_hops_to_profile(tdl, monkeypatch):
+def test_resolve_short_link_relative_hops_to_profile(monkeypatch):
     calls = []
     responses = {
         "https://www.tiktok.com/t/ZTabc/": FakeResponse("/t/ZTabc/?next=1"),
         "https://www.tiktok.com/t/ZTabc/?next=1": FakeResponse("/@some.user?lang=en"),
     }
-    monkeypatch.setattr(tdl.requests, "get", fake_get(responses, calls))
-    resolved = tdl.resolve_short_link("www.tiktok.com/t/ZTabc/")
+    monkeypatch.setattr(tiktok.requests, "get", fake_get(responses, calls))
+    resolved = tiktok.resolve_short_link("www.tiktok.com/t/ZTabc/")
     assert resolved == "https://www.tiktok.com/@some.user?lang=en"
     assert calls == ["https://www.tiktok.com/t/ZTabc/", "https://www.tiktok.com/t/ZTabc/?next=1"]
-    assert tdl.parse_target(resolved) == ("some.user", None)
+    assert tiktok.parse_target(resolved) == ("some.user", None)
 
 
-def test_resolve_short_link_scheme_relative_redirect(tdl, monkeypatch):
+def test_resolve_short_link_scheme_relative_redirect(monkeypatch):
     responses = {"https://vm.tiktok.com/ZMabc/": FakeResponse("//www.tiktok.com/@tiktok/photo/456")}
-    monkeypatch.setattr(tdl.requests, "get", fake_get(responses, []))
-    assert tdl.resolve_short_link("https://vm.tiktok.com/ZMabc/") == "https://www.tiktok.com/@tiktok/photo/456"
+    monkeypatch.setattr(tiktok.requests, "get", fake_get(responses, []))
+    assert tiktok.resolve_short_link("https://vm.tiktok.com/ZMabc/") == "https://www.tiktok.com/@tiktok/photo/456"

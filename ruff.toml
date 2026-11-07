@@ -4,8 +4,3 @@ target-version = "py310"
 [lint]
 # pycodestyle errors/warnings, pyflakes and import sorting.
 select = ["E", "F", "W", "I"]
-
-[lint.per-file-ignores]
-# A few existing lines in the script are slightly over 120 characters.
-# Wrap them when you touch that code; new code (and tests) keep the limit.
-"tiktok-dl.py" = ["E501"]

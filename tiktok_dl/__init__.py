@@ -1,0 +1,39 @@
+"""tiktok-dl - download every video from a TikTok profile.
+
+How it works
+------------
+1. Pick the site     sites.find_site()       the site a target belongs to (TikTok for now).
+2. List posts        Site.list_posts()       TikTok: yt-dlp's user extractor (flat list of post ids).
+3. Read each post    Site.read_post()        TikTok: the post page embeds its data in
+                                             <script id="__UNIVERSAL_DATA_FOR_REHYDRATION__">.
+4. Plan downloads    core.download.Download  video / cover / subtitles, or images + music for photo
+                                             posts, from the URLs in Post.media().
+5. Download          download_aria2()        aria2c, one URL per file per attempt (falls back to
+                     download_requests()     requests).
+6. Mux               core.mux.finalize()     ffmpeg adds metadata, cover and subtitles; photo posts
+                                             become MP4 slideshows (mux_slideshow).
+
+core.flow.run_profile() runs steps 3-6 in batches and overlaps them: while aria2c downloads one
+batch, the next batch's metadata is read and the previous batch is muxed in the background.
+
+Code map
+--------
+cli.py              arguments, main(), scrape_profile() (picks the site for a target)
+core/console.py     message language (t()), colours, log(), status(), ProgressBar, formatters
+core/errors.py      ScrapeError, RateLimited, Challenged, ChallengeStop
+core/site.py        the site interface: Site, Post, Verdict (what an answer means), Entry, Media, ...
+core/pacing.py      PageReader: --wait gap, backoff after rate-limited answers, streak stops
+core/download.py    Download (which files a post needs), aria2c / requests downloads, file checks
+core/mux.py         ffmpeg muxing, slideshows, finalize()
+core/records.py     Progress (SQLite, lets a re-run skip finished posts), videos.csv, failed.txt
+core/flow.py        run_profile(): the read -> download -> mux loop for one profile
+core/tools.py       finding aria2c / ffmpeg (next to tiktok-dl.py first, then PATH)
+core/stop.py        STOP (Ctrl+C), core/util.py: UA, sanitize(), ...
+sites/tiktok.py     everything TikTok: web client, page parsing, links, CSV row (flatten), MP4 tags,
+                    post list (yt-dlp), session cookie
+
+The core never contains a site's URLs, JSON keys or bot-protection markers (docs/adr/0002).
+Messages are bilingual: t("English", "Tiếng Việt"). Please add both when you add a message.
+"""
+
+__version__ = "2.0.0"

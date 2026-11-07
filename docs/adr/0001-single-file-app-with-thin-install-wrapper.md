@@ -1,6 +1,6 @@
 # 1. Keep the app in tiktok-dl.py; install it through a thin wrapper
 
-Status: accepted (issue #12)
+Status: superseded by [ADR 0002](0002-package-with-shared-core-and-site-modules.md) (issue #30; was accepted in issue #12)
 
 ## Context
 
