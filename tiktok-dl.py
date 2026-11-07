@@ -817,6 +817,18 @@ def tag_args(tags: dict) -> list[str]:
     return out
 
 
+def mux_attempts(has_cover: bool, has_subs: bool) -> list[tuple[bool, bool]]:
+    """(with_cover, with_subs) for each ffmpeg attempt, most complete first.
+
+    Only parts the post really has are tried, so no two attempts run the same command."""
+    attempts = []
+    for with_cover, with_subs in ((True, True), (False, True), (False, False)):
+        attempt = (with_cover and has_cover, with_subs and has_subs)
+        if attempt not in attempts:
+            attempts.append(attempt)
+    return attempts
+
+
 def mux_video(ffmpeg: str, post: Post, out: Path) -> str:
     tags = tag_args(mux_tags(post.item))
     subs = [(p, lang) for p, lang in post.subs if p.exists() and p.stat().st_size]
@@ -842,12 +854,15 @@ def mux_video(ffmpeg: str, post: Post, out: Path) -> str:
         return cmd + tags + ["-movflags", "+faststart", str(out)]
 
     # If the cover (sometimes an odd HEIC/WebP) or a subtitle breaks ffmpeg, drop them one at a time.
-    notes = []
-    for with_cover, with_subs in ((True, True), (False, True), (False, False)):
+    for with_cover, with_subs in mux_attempts(bool(cover), bool(subs)):
         ok, err = run_ffmpeg(build(with_cover, with_subs))
         if ok:
+            notes = []
+            if cover and not with_cover:
+                notes.append(t("cover skipped", "bỏ ảnh bìa"))
+            if subs and not with_subs:
+                notes.append(t("subtitles skipped", "bỏ phụ đề"))
             return ", ".join(notes)
-        notes.append(t("cover skipped", "bỏ ảnh bìa") if with_cover and cover else t("subtitles skipped", "bỏ phụ đề"))
     raise ScrapeError(t(f"ffmpeg error: {err}", f"ffmpeg lỗi: {err}"))
 
 
