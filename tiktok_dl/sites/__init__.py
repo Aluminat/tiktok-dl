@@ -1,9 +1,13 @@
-"""One module per website (TikTok for now). The core reaches them only through core.site.Site."""
+"""One module per website. The core reaches them only through core.site.Site.
+
+Instagram and Facebook only recognise their links so far (they fail with "not supported yet")."""
 from __future__ import annotations
 
+from .facebook import FacebookSite
+from .instagram import InstagramSite
 from .tiktok import TikTokSite
 
-SITES = (TikTokSite,)
+SITES = (TikTokSite, InstagramSite, FacebookSite)
 
 
 def find_site(target: str):
