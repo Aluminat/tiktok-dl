@@ -14,12 +14,13 @@ PACKAGE = Path(tiktok_dl.__file__).resolve().parent
 CORE = sorted((PACKAGE / "core").glob("*.py"))
 ALL_SOURCES = sorted(PACKAGE.rglob("*.py")) + [LAUNCHER]
 
-# TikTok's URLs, page JSON keys and bot-protection markers belong in sites/tiktok.py.
+# Site URLs, page JSON keys and bot-protection markers belong in sites/<site>.py.
 SITE_SPECIFIC = [
     "tiktok.com", "__UNIVERSAL_DATA_FOR_REHYDRATION__", "__DEFAULT_SCOPE__", "_wafchallengeid", "waf-aiso",
     "itemStruct", "itemInfo", "userInfo", "playAddr", "PlayAddrStruct", "downloadAddr", "imagePost", "createTime",
     "uniqueId", "statusCode", "subtitleInfos", "LanguageCodeName", "webapp.", "aweme", "isECVideo",
     "10204",   # TikTok's deleted-post code
+    "instagram.com", "facebook.com", "fb.watch",
 ]
 
 # Names tests replace with monkeypatch.setattr on their defining module (or module state they set).
@@ -90,4 +91,5 @@ def test_patched_names_are_called_through_their_module(source):
 
 def test_guards_see_the_whole_package():
     names = {p.relative_to(PACKAGE).as_posix() for p in PACKAGE.rglob("*.py")}
-    assert {"cli.py", "core/site.py", "core/flow.py", "sites/tiktok.py"} <= names
+    assert {"cli.py", "core/site.py", "core/flow.py", "sites/tiktok.py",
+            "sites/instagram.py", "sites/facebook.py"} <= names

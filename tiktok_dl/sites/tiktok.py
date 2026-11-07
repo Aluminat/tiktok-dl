@@ -461,6 +461,8 @@ class TikTokSite(Site):
     """TikTok behind the core's site interface. A plain class, not a dataclass: it holds the session
     ID, which must never show up in a repr."""
 
+    name = "tiktok"
+    label = "TikTok"
     referer = "https://www.tiktok.com/"
 
     def __init__(self, profile: str, session_id: Optional[str], wait: float, proxy: Optional[str]):
@@ -471,6 +473,12 @@ class TikTokSite(Site):
     @staticmethod
     def matches(url: str) -> bool:
         return bool(TIKTOK_LINK_RE.match(url.strip()))
+
+    @classmethod
+    def folder(cls, profile: str) -> Path:
+        """<output>/<user>, with no "tiktok" folder: TikTok was the only site before, and folders made by
+        earlier versions must keep resuming."""
+        return Path(profile)
 
     @staticmethod
     def parse(target: str) -> tuple[str, Optional[Entry]]:

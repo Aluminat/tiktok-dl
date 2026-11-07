@@ -44,7 +44,7 @@ def run_profile(site_cls: type[Site], target: str, opts, aria2: Optional[str], f
     failed in this run. Raises ScrapeError when the profile cannot be read at all, and RateLimited
     (or ChallengeStop) when the run has to stop."""
     profile, single = site_cls.parse(target)
-    out_dir = Path(opts.output).resolve() / profile
+    out_dir = Path(opts.output).resolve() / site_cls.folder(profile)
     (out_dir / "metadata").mkdir(parents=True, exist_ok=True)
     work = out_dir / ".parts"
     work.mkdir(exist_ok=True)

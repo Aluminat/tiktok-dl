@@ -41,14 +41,16 @@ The app is the **`tiktok_dl/`** package; `tiktok-dl.py` only launches it. The do
 | File | What it does |
 |---|---|
 | `cli.py` | Arguments and `main()`; `scrape_profile()` picks the site for a target |
+| `sites/__init__.py` | `SITES` and `find_site()`: the site of a link, or `--site` for a username |
 | `core/console.py` | `t()`, colours, `log()`, `status()` and the progress bar |
-| `core/site.py` | The site interface: `Site`, `Post`, `Verdict` |
+| `core/site.py` | The site interface: `Site` (also its output folder), `Post`, `Verdict` |
 | `core/pacing.py` | Page reads: `--wait` gap, backoff on rate limits, streak stops |
 | `core/download.py` | `Download` (which files a post needs), aria2c / requests downloads |
 | `core/mux.py` | ffmpeg muxing and photo slideshows |
 | `core/records.py` | Progress database, `videos.csv`, `failed.txt` |
 | `core/flow.py` | Main loop: read → download → mux, in overlapping batches |
 | `sites/tiktok.py` | Everything TikTok: page reads, post list (yt-dlp), CSV row, MP4 tags |
+| `sites/instagram.py`, `sites/facebook.py` | Only recognise their links for now ("not supported yet") |
 
 ## Rules for changes
 

@@ -110,12 +110,20 @@ class Site(ABC):
 
     Besides the members agreed for the interface (matches, parse, read_post, list_posts, csv_row,
     mux_tags, classify), a site gives what today's output needs: save_profile() for profile.json and
-    the header line, link() for old failed.txt rows, client for page reads and download cookies, and
-    referer for aria2c.
+    the header line, link() for old failed.txt rows, client for page reads and download cookies,
+    referer for aria2c, and name, label and folder() for --site, messages and the output folder.
     """
 
+    name: str = ""             # the --site value, e.g. "tiktok"
+    label: str = ""            # the site's name in messages, e.g. "TikTok"
     referer: str = ""          # aria2c --referer for downloads
     client: PageReader         # page reads; also the requests session (`client.s`) and cookies for downloads
+
+    @classmethod
+    def folder(cls, profile: str) -> Path:
+        """Where a profile's files go, relative to --output: <site name>/<profile>. A class method: the
+        folder is made before the site is constructed."""
+        return Path(cls.name, profile)
 
     @staticmethod
     @abstractmethod

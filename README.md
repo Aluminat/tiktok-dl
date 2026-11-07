@@ -72,6 +72,37 @@ python tiktok-dl.py @username
 
 Files are saved in `downloads/<username>/`.
 
+### Sites and folders
+
+The tool works out the site from each link:
+
+| Link | Site |
+|---|---|
+| `tiktok.com/@username`, `.../video/...`, `.../photo/...`, `vt.tiktok.com/...`, `vm.tiktok.com/...` | TikTok |
+| `instagram.com/<username>`, `.../reel/...`, `.../reels/...`, `.../p/...`, `.../tv/...` (also `www.` and `m.`) | Instagram |
+| `facebook.com/reel/...`, `.../watch/?v=...`, `.../<page>/videos/...`, `.../<page>/reels/...`, `.../share/r/...`, `.../share/v/...` (also `www.`, `m.` and `web.`), `fb.watch/...` | Facebook |
+
+**Instagram and Facebook are not supported yet.** Their links are recognised, but each one fails
+with "not supported yet" and the tool goes on with the next target.
+
+Without `--site`, a bare `username` or `@username` means TikTok and links from any site are
+accepted. With `--site instagram`, `--site facebook` or `--site tiktok`, usernames belong to that
+site and links must be from it: a link from a different site fails with an error, and the tool goes
+on with the next target.
+
+Each account gets its own folder (Instagram and Facebook use theirs once they are supported):
+
+| Site | Folder |
+|---|---|
+| TikTok | `downloads/<username>/` |
+| Instagram | `downloads/instagram/<username>/` |
+| Facebook | `downloads/facebook/<page>/` |
+
+A link to a single post is saved in its author's folder, so each account has one `videos.csv`,
+`failed.txt` and progress file. TikTok has no `tiktok/` folder because it was the only site
+before: folders made by earlier versions stay where they are, and re-runs keep skipping the posts
+already downloaded there.
+
 Messages are in **English** by default (Vietnamese if your system language is Vietnamese).
 Use `--lang en` or `--lang vi` to choose.
 

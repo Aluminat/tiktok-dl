@@ -19,7 +19,11 @@ Option (b), with one module per site.
   - `cli.py`: arguments, `main()`, and `scrape_profile()`, which picks the site for a target.
   - `core/`: the site-neutral parts (console output and `t()`, errors, the site interface, page
     pacing, downloads, muxing, progress records, the main loop, finding tools).
-  - `sites/tiktok.py`: everything TikTok. `instagram.py` and `facebook.py` come later.
+  - `sites/tiktok.py`: everything TikTok. `sites/instagram.py` and `sites/facebook.py` only
+    recognise their links so far (issue #31): their `parse()` fails with "not supported yet", so
+    they are never constructed. Downloading comes in later issues.
+  - `sites/__init__.py`: `SITES` and `find_site()`, which picks the site of a link, or the one
+    named by `--site` for a bare username (TikTok without it).
 - **Launcher.** `tiktok-dl.py` is only a launcher. `python tiktok-dl.py ...` runs the package next
   to it, and it sets `core.tools.SCRIPT_DIR` to its own folder, so `aria2c.exe` / `ffmpeg.exe`
   placed next to it are still found first.
@@ -27,7 +31,7 @@ Option (b), with one module per site.
   `python -m tiktok_dl` works too. The version has one source, `__version__` in
   `tiktok_dl/__init__.py`, which hatchling reads. The wheel holds the package only.
 - **The site interface** (`core/site.py`) is the only way the core reaches a site. Its members are
-  the ones agreed in issue #30, plus four that today's output needs:
+  the ones agreed in issue #30, plus the ones that today's output and the site routing need:
 
   | Member | Why |
   |---|---|
@@ -41,6 +45,8 @@ Option (b), with one module per site.
   | `link(id)` | the link of an old `failed.txt` row that was stored without one |
   | `client` | the page reader (`core.pacing.PageReader`): the requests session and cookies for downloads |
   | `referer` | the aria2c `--referer` value |
+  | `name`, `label` | the `--site` value (`tiktok`) and the name in messages (`TikTok`) |
+  | `folder(profile)` | the profile's folder under `--output`: `<name>/<profile>`; TikTok keeps `<profile>` so older folders keep resuming (issue #31) |
 
 - **Core rules.** The core never contains a site's URLs, page JSON keys or bot-protection
   markers. A site's answers to page reads and the errors of failed post reads reach the core
