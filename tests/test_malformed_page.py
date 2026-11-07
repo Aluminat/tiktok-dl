@@ -81,7 +81,7 @@ def run(tdl, tmp_path, monkeypatch):
     opts = types.SimpleNamespace(
         output=str(tmp_path), session_id=None, wait=0, proxy=None, limit=None, metadata_only=False,
         workers=2, batch=50, mux_jobs=1, jobs=2, connections=1, cover=False, subs="none",
-        slideshow=True, keep_images=False, slide_seconds=3.0, keep_parts=False,
+        slideshow=True, keep_images=False, slide_seconds=3.0, keep_parts=False, retry_all=False,
     )
 
     def go(bad_page: str | None = None, profile_page: str | None = None) -> int:
