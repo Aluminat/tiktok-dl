@@ -45,8 +45,8 @@ def main() -> None:
                    help=t("username, @username, profile link, video link or short link (several allowed)",
                           "username, @username, link profile, link video hoặc link rút gọn (có thể nhập nhiều)"))
     p.add_argument("--site", choices=tuple(BY_NAME),
-                   help=t("the site usernames belong to (default: tiktok); links must be from this site",
-                          "username thuộc trang nào (mặc định: tiktok); link phải thuộc đúng trang này"))
+                   help=t("the site usernames belong to (without it: tiktok); with it, links must be from this site",
+                          "username thuộc trang nào (không có thì là tiktok); khi có, link phải thuộc đúng trang này"))
     p.add_argument("-o", "--output", default="downloads",
                    help=t("root folder to save into (default: downloads)", "thư mục gốc để lưu (mặc định: downloads)"))
     p.add_argument("-n", "--limit", type=int, help=t("only the N newest posts", "chỉ lấy N bài mới nhất"))

@@ -80,14 +80,15 @@ Tool tự nhận ra link thuộc trang nào:
 |---|---|
 | `tiktok.com/@username`, `.../video/...`, `.../photo/...`, `vt.tiktok.com/...`, `vm.tiktok.com/...` | TikTok |
 | `instagram.com/<username>`, `.../reel/...`, `.../reels/...`, `.../p/...`, `.../tv/...` (cả `www.` và `m.`) | Instagram |
-| `facebook.com/reel/...`, `.../watch/?v=...`, `.../<page>/videos/...`, `.../<page>/reels/...` (cả `www.`, `m.` và `web.`), `fb.watch/...` | Facebook |
+| `facebook.com/reel/...`, `.../watch/?v=...`, `.../<page>/videos/...`, `.../<page>/reels/...`, `.../share/r/...`, `.../share/v/...` (cả `www.`, `m.` và `web.`), `fb.watch/...` | Facebook |
 
 **Instagram và Facebook chưa được hỗ trợ.** Tool nhận ra link của hai trang này, nhưng mỗi link sẽ
 báo lỗi "chưa hỗ trợ" rồi tool chuyển sang mục tiếp theo.
 
-`username` hoặc `@username` không kèm link được hiểu là TikTok. Thêm `--site instagram` hoặc
-`--site facebook` để báo username đó thuộc trang khác (mặc định là `--site tiktok`). Link thuộc
-trang khác với `--site` sẽ báo lỗi, rồi tool chuyển sang mục tiếp theo.
+Không có `--site` thì `username` hoặc `@username` không kèm link được hiểu là TikTok, còn link của
+trang nào cũng được nhận. Khi có `--site instagram`, `--site facebook` hoặc `--site tiktok`, username
+thuộc trang đó và link phải thuộc đúng trang đó: link của trang khác sẽ báo lỗi, rồi tool chuyển
+sang mục tiếp theo.
 
 Mỗi tài khoản có một thư mục riêng (Instagram và Facebook sẽ dùng thư mục của mình khi được hỗ trợ):
 

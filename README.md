@@ -80,14 +80,15 @@ The tool works out the site from each link:
 |---|---|
 | `tiktok.com/@username`, `.../video/...`, `.../photo/...`, `vt.tiktok.com/...`, `vm.tiktok.com/...` | TikTok |
 | `instagram.com/<username>`, `.../reel/...`, `.../reels/...`, `.../p/...`, `.../tv/...` (also `www.` and `m.`) | Instagram |
-| `facebook.com/reel/...`, `.../watch/?v=...`, `.../<page>/videos/...`, `.../<page>/reels/...` (also `www.`, `m.` and `web.`), `fb.watch/...` | Facebook |
+| `facebook.com/reel/...`, `.../watch/?v=...`, `.../<page>/videos/...`, `.../<page>/reels/...`, `.../share/r/...`, `.../share/v/...` (also `www.`, `m.` and `web.`), `fb.watch/...` | Facebook |
 
 **Instagram and Facebook are not supported yet.** Their links are recognised, but each one fails
 with "not supported yet" and the tool goes on with the next target.
 
-A bare `username` or `@username` means TikTok. Add `--site instagram` or `--site facebook` to say it
-belongs to another site (`--site tiktok` is the default). A link from a different site than
-`--site` fails with an error, and the tool goes on with the next target.
+Without `--site`, a bare `username` or `@username` means TikTok and links from any site are
+accepted. With `--site instagram`, `--site facebook` or `--site tiktok`, usernames belong to that
+site and links must be from it: a link from a different site fails with an error, and the tool goes
+on with the next target.
 
 Each account gets its own folder (Instagram and Facebook use theirs once they are supported):
 
