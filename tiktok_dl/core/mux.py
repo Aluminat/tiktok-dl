@@ -150,9 +150,10 @@ def finalize(post: Download, out_dir: Path, ffmpeg: Optional[str], opts) -> tupl
     else:
         if not post.video.exists() or post.video.stat().st_size < 1024:
             if post.incomplete:
-                raise ScrapeError(t("video download incomplete: the file is smaller than the size TikTok "
+                site = post.site.label if post.site else t("the site", "trang")
+                raise ScrapeError(t(f"video download incomplete: the file is smaller than the size {site} "
                                     "reports (every link was tried)",
-                                    "tải video không trọn vẹn: file nhỏ hơn dung lượng TikTok báo "
+                                    f"tải video không trọn vẹn: file nhỏ hơn dung lượng {site} báo "
                                     "(đã thử hết các link tải)"))
             raise ScrapeError(t("video could not be downloaded", "không tải được video"))
         main = out_dir / f"{post.base}.mp4"

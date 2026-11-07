@@ -40,6 +40,11 @@ class Progress:
         with self.lock:
             return {row[0] for row in self.db.execute("SELECT id FROM posts WHERE status = 'skipped'")}
 
+    def files(self) -> dict[str, str]:
+        """{post id: file name} of every finished post (the "file" column of videos.csv)."""
+        with self.lock:
+            return dict(self.db.execute("SELECT id, file FROM posts WHERE status = 'done' AND file IS NOT NULL"))
+
     def failures(self) -> list[tuple[str, Optional[str], Optional[str], str]]:
         """(id, link, reason, status) of every post whose latest status is an error or skipped."""
         with self.lock:
@@ -51,13 +56,18 @@ class Progress:
             self.db.close()
 
 
-def write_csv(out_dir: Path) -> int:
+def write_csv(out_dir: Path, files: Optional[dict[str, str]] = None) -> int:
+    """Rebuild videos.csv from metadata/*.json, newest first. The columns are the site's CSV row
+    (Site.csv_row) and then "file", the downloaded file's name from `files` ({post id: name}), empty
+    for a post not downloaded (yet). Returns the row count."""
+    files = files or {}
     rows = []
     for f in sorted((out_dir / "metadata").glob("*.json")):
         try:
-            rows.append(json.loads(f.read_text(encoding="utf-8"))["metadata"])
+            row = json.loads(f.read_text(encoding="utf-8"))["metadata"]
         except (ValueError, KeyError):
             continue
+        rows.append({**row, "file": files.get(str(row.get("id")))})
     rows.sort(key=lambda r: r.get("created") or "", reverse=True)
     if rows:
         with open(out_dir / "videos.csv", "w", newline="", encoding="utf-8-sig") as fh:

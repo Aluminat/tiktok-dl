@@ -1,4 +1,4 @@
-"""The site interface: the only way the core reaches a site (TikTok, later Instagram, Facebook).
+"""The site interface: the only way the core reaches a site (TikTok, Instagram, later Facebook).
 
 The core (download, mux, progress DB, CSV, failed.txt, backoff, resume) is the same for every site.
 A site module subclasses Site and Post and supplies the URLs, page parsing and rules of its website.
@@ -23,6 +23,8 @@ class Verdict(enum.Enum):
     RATE_LIMITED = "rate_limited"  # back off and retry; RATE_LIMIT_STREAK in a row stop the run
     BLOCKED = "blocked"            # bot protection: fail this read at once; CHALLENGE_STREAK in a row stop the run
     PERMANENT = "permanent"        # the post can never be read: marked "skipped", not tried on re-runs
+    STOP = "stop"                  # nothing more can be read (a check to clear in a browser, login expired,
+                                   # account limited): stop the run at once with the site's message
 
 
 @dataclass(frozen=True)
@@ -106,18 +108,33 @@ class Post(ABC):
 
 
 class Site(ABC):
-    """One website. Constructed once per profile run: Site(profile, session_id, wait, proxy).
+    """One website. Constructed once per profile run: Site(profile, session(opts), wait, proxy).
 
     Besides the members agreed for the interface (matches, parse, read_post, list_posts, csv_row,
     mux_tags, classify), a site gives what today's output needs: save_profile() for profile.json and
     the header line, link() for old failed.txt rows, client for page reads and download cookies,
     referer for aria2c, and name, label and folder() for --site, messages and the output folder.
+    For a second site (docs/adr/0003): session() picks its login cookie, defaults its unmeasured
+    pacing, and owner() finds the profile of a post link that does not name it.
     """
 
     name: str = ""             # the --site value, e.g. "tiktok"
     label: str = ""            # the site's name in messages, e.g. "TikTok"
     referer: str = ""          # aria2c --referer for downloads
     client: PageReader         # page reads; also the requests session (`client.s`) and cookies for downloads
+    # --wait, --workers and --connections when the user does not give them (core.flow.run_settings).
+    defaults: dict = {"wait": 0.3, "workers": 8, "connections": 4}
+
+    @classmethod
+    def session(cls, opts) -> Optional[str]:
+        """The login cookie this site uses from the options (TikTok: --session-id / TIKTOK_SESSIONID).
+        A class method: it is read before the site is constructed."""
+        return getattr(opts, "session_id", None)   # getattr: tests may build opts without it
+
+    def owner(self, entry: Entry) -> str:
+        """The profile of a post whose link does not name it (parse() gave None as the profile). Called
+        once, before the output folder is made. Raises ScrapeError."""
+        raise NotImplementedError(f"{self.label} links always name the profile")
 
     @classmethod
     def folder(cls, profile: str) -> Path:
@@ -132,8 +149,9 @@ class Site(ABC):
 
     @staticmethod
     @abstractmethod
-    def parse(target: str) -> tuple[str, Optional[Entry]]:
-        """A post link or a profile -> (profile name, the single post or None). Raises ScrapeError."""
+    def parse(target: str) -> tuple[Optional[str], Optional[Entry]]:
+        """A post link or a profile -> (profile name, the single post or None). Raises ScrapeError.
+        The profile is None only for a post link that does not name it (see owner())."""
 
     @abstractmethod
     def save_profile(self, out_dir: Path) -> Optional[Profile]:
