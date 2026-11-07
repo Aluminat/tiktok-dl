@@ -39,6 +39,8 @@ FACEBOOK_LINKS = [
     "https://www.facebook.com/SomePage/videos/1234567890123456/",
     "https://www.facebook.com/SomePage/reels/1234567890123456/",
     "https://www.facebook.com/SomePage",
+    "https://www.facebook.com/share/r/AbC123xyz/",
+    "https://www.facebook.com/share/v/AbC123xyz/",
     "https://fb.watch/aBcD1234_x/",
     "fb.watch/aBcD1234_x",
     "facebook.com/reel/1234567890123456",
@@ -48,7 +50,8 @@ TIKTOK_TARGETS = ["@some.user", "some.user", "instagram", "facebook", "https://w
                   "https://vt.tiktok.com/ZSabc/", "https://www.tiktok.com/@some.user/photo/1"]
 LOOKALIKES = ["https://notinstagram.com/p/x", "https://instagram.com.evil.example/p/x",
               "https://fakefacebook.com/reel/1", "https://facebook.com.evil.example/reel/1",
-              "https://fb.watcher.example/x", "https://example.com/?u=instagram.com"]
+              "https://fb.watcher.example/x", "https://example.com/?u=instagram.com",
+              "https://tiktok.com.example/@some.user"]
 
 
 def make_opts(tmp_path, **overrides):
@@ -151,6 +154,12 @@ def test_everything_else_still_goes_to_tiktok(target):
     assert not instagram.InstagramSite.matches(target)
     assert not facebook.FacebookSite.matches(target)
     assert find_site(target) is tiktok.TikTokSite
+
+
+@pytest.mark.parametrize("target", LOOKALIKES)
+def test_lookalikes_are_no_site_link(target):
+    # They reach TikTok only as the fallback for a non-link, never because TikTok claims them.
+    assert [site for site in SITES if site.matches(target)] == []
 
 
 @pytest.fixture
@@ -267,7 +276,7 @@ def test_main_site_option(run_main, logged, tmp_path):
     assert list(tmp_path.iterdir()) == []
 
 
-def test_main_site_tiktok_is_the_default(run_main, logged):
+def test_main_site_tiktok_routes_usernames_to_tiktok(run_main, logged):
     assert run_main("--site", "tiktok", "some.user", "https://vm.tiktok.com/ZMabc/") == \
         (0, [("tiktok", "some.user"), ("tiktok", "https://vm.tiktok.com/ZMabc/")])
     assert not [line for line in logged if line.startswith("Error: ")]
@@ -277,3 +286,10 @@ def test_main_rejects_an_unknown_site(run_main, capsys):
     code, tried = run_main("--site", "youtube", "some.user")
     assert code == 2 and tried == []
     assert "invalid choice: 'youtube'" in capsys.readouterr().err
+
+
+def test_without_site_links_from_any_site_are_accepted():
+    # Without --site a link goes to its own site; --site tiktok turns the same link into a mismatch.
+    assert find_site(INSTAGRAM_LINKS[0]) is instagram.InstagramSite
+    with pytest.raises(ScrapeError, match="not TikTok"):
+        find_site(INSTAGRAM_LINKS[0], "tiktok")
