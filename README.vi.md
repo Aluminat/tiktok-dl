@@ -80,6 +80,26 @@ Dùng `--no-color` (hoặc đặt biến `NO_COLOR=1`) để in chữ trơn.
 
 Chạy `python tiktok-dl.py -h` để xem tất cả tuỳ chọn.
 
+## Tốc độ và giới hạn request
+
+Mặc định được để thấp để TikTok ít chặn hay đánh dấu tài khoản của bạn
+(càng nên cẩn thận khi dùng `--session-id`):
+
+| Tuỳ chọn | Mặc định | Tác dụng |
+|---|---|---|
+| `-j`, `--jobs` | 16 | số file aria2c tải cùng lúc |
+| `-x`, `--connections` | 4 | số kết nối aria2c cho mỗi file (tối đa 16) |
+| `-w`, `--workers` | 8 | số luồng đọc trang bài đăng |
+| `--wait` | 0.3 | số giây giãn cách giữa các request trang TikTok |
+
+Bạn có thể tăng lên, ví dụ `-x 8 --wait 0.1`, nhưng tải càng nhanh thì càng dễ bị chặn.
+
+Nếu TikTok trả HTTP 429 (quá nhiều request) hoặc 403 khi đọc trang, tool hiện cảnh báo một lần,
+rồi tạm dừng và thử lại, mỗi lần chờ lâu hơn (5, 10, 20 giây), hoặc chờ đúng thời gian TikTok
+yêu cầu trong header `Retry-After` (tối đa 2 phút). Nếu bị liên tiếp 8 lần, tool sẽ dừng hẳn thay vì
+thử lại từng bài (có thể TikTok đang tạm chặn IP của bạn). Hãy đợi một lúc rồi chạy lại đúng lệnh cũ
+để tải tiếp; tăng `--wait` hoặc giảm `--workers` cũng giúp ích.
+
 ## Log bài không tải được
 
 Bài nào không tải được, tool sẽ báo cho bạn:

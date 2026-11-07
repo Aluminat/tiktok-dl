@@ -80,6 +80,26 @@ Use `--no-color` (or set `NO_COLOR=1`) for plain text.
 
 Run `python tiktok-dl.py -h` to see all options.
 
+## Speed and rate limits
+
+The defaults are kept low so TikTok is less likely to block you or flag your account
+(more care matters when you use `--session-id`):
+
+| Option | Default | What it sets |
+|---|---|---|
+| `-j`, `--jobs` | 16 | files aria2c downloads at once |
+| `-x`, `--connections` | 4 | aria2c connections per file (max 16) |
+| `-w`, `--workers` | 8 | threads reading post pages |
+| `--wait` | 0.3 | seconds between TikTok page requests |
+
+You can raise them, for example `-x 8 --wait 0.1`, but going faster makes blocks more likely.
+
+If TikTok answers with HTTP 429 (too many requests) or 403 while reading pages, the tool shows one
+warning, pauses and retries with a longer wait each time (5, 10, 20 s), or waits as long as
+TikTok asks in its `Retry-After` header (up to 2 minutes). After 8 such answers in a row the tool
+stops instead of retrying every post (TikTok may have blocked your IP for a while). Wait a bit, then
+run the same command again to continue; a larger `--wait` or fewer `--workers` helps.
+
 ## Failed downloads log
 
 If a post can't be downloaded, the tool tells you:

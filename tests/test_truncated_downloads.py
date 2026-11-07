@@ -296,6 +296,9 @@ def run_profile(tdl, tmp_path, monkeypatch, item, session=None, aria2=None):
         def cookie_header(self):
             return ""
 
+        def stop(self):
+            pass
+
     monkeypatch.setattr(tdl, "TikTok", FakeTikTok)
     monkeypatch.setattr(tdl, "save_profile", lambda *a: None)
     o = opts(tmp_path, cover=False)
