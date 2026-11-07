@@ -460,7 +460,8 @@ class TikTok:
                 last = t(f"HTTP {r.status_code}, page has no data", f"HTTP {r.status_code}, trang không có dữ liệu")
             except (requests.RequestException, ValueError, AttributeError) as e:
                 last = str(e)
-            time.sleep(1 + 2 * attempt)
+            if STOP.wait(1 + 2 * attempt):
+                break
         raise ScrapeError(last)
 
     @staticmethod
@@ -790,6 +791,17 @@ def is_valid_file(dest: Path, expected: int = 0) -> bool:
     return True
 
 
+# Set on Ctrl+C. Worker threads check it so queued work is dropped instead of finished.
+STOP = threading.Event()
+
+
+def wait_result(fut):
+    """fut.result(), but Ctrl+C can interrupt the wait (a blocking result() may not, on Windows)."""
+    while not fut.done():
+        time.sleep(0.1)
+    return fut.result()
+
+
 def is_truncated(dest: Path, expected: int) -> bool:
     """A download with valid content that stops short of the size TikTok reports."""
     try:
@@ -830,8 +842,18 @@ def download_aria2(aria2: str, tasks, cookie: str, jobs: int, conns: int, attemp
     ]
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
-        proc.communicate(("\n".join(lines) + "\n").encode("utf-8"))
+        # Wait in short steps instead of one blocking communicate(): on Windows Ctrl+C cannot
+        # interrupt a blocking wait, so STOP would only be set once aria2c exits, while ffmpeg jobs
+        # keep running and starting meanwhile.
+        data = ("\n".join(lines) + "\n").encode("utf-8")
+        while True:
+            try:
+                proc.communicate(data, timeout=0.1)
+                break
+            except subprocess.TimeoutExpired:
+                data = None  # already handed over: later calls only wait for aria2c to exit
     except KeyboardInterrupt:
+        STOP.set()
         proc.terminate()
         raise
     truncated = {dest for dest, expected in queued if is_truncated(dest, expected)}
@@ -847,18 +869,25 @@ def download_requests(session: requests.Session, tasks, jobs: int) -> set[Path]:
 
     def one(task):
         mirrors, dest, sizes = task
-        if is_valid_file(dest, max(sizes.values(), default=0)):
+        sizes = sizes or {}  # None/{}: no size reported for any mirror
+        if STOP.is_set() or is_valid_file(dest, max(sizes.values(), default=0)):
             return
         dest.parent.mkdir(parents=True, exist_ok=True)
         for url in mirrors:
             expected = sizes.get(url, 0)  # the watermarked downloadAddr has no reported size
             for _ in range(3):
+                if STOP.is_set():
+                    break
                 try:
                     with session.get(url, stream=True, timeout=30) as r:
                         r.raise_for_status()
                         with open(dest, "wb") as fh:
                             for chunk in r.iter_content(1 << 16):
+                                if STOP.is_set():
+                                    break
                                 fh.write(chunk)
+                    if STOP.is_set():
+                        break  # Ctrl+C mid-download: the partial file is deleted below
                     if is_valid_file(dest, expected):
                         return
                     if not is_truncated(dest, expected):
@@ -866,11 +895,18 @@ def download_requests(session: requests.Session, tasks, jobs: int) -> set[Path]:
                     truncated.add(dest)  # cut short: delete it and retry
                     dest.unlink(missing_ok=True)
                 except requests.RequestException:
-                    time.sleep(1)
+                    STOP.wait(1)
         dest.unlink(missing_ok=True)
 
-    with ThreadPoolExecutor(jobs) as pool:
-        list(pool.map(one, tasks))
+    pool = ThreadPoolExecutor(jobs)
+    try:
+        for fut in [pool.submit(one, task) for task in tasks]:
+            wait_result(fut)
+    except KeyboardInterrupt:
+        STOP.set()
+        raise
+    finally:
+        pool.shutdown(wait=True, cancel_futures=STOP.is_set())
     return truncated
 
 
@@ -879,7 +915,17 @@ def download_requests(session: requests.Session, tasks, jobs: int) -> set[Path]:
 # --------------------------------------------------------------------------- #
 
 def run_ffmpeg(cmd: list[str]) -> tuple[bool, str]:
+    # Ctrl+C reaches ffmpeg too and makes it fail. Report that as "stopped", so mux_video() does not
+    # start a fallback attempt (e.g. without the cover) and record the post as done.
+    if STOP.is_set():
+        raise ScrapeError(t("stopped", "đã dừng"))
     p = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    # ffmpeg can exit from Ctrl+C a moment before the main thread sets STOP. For an exit code that
+    # looks like a signal (255 from ffmpeg's own handler, 0xC000013A on Windows, <0 on POSIX),
+    # give STOP a second to be set before treating it as a real error.
+    by_signal = p.returncode < 0 or p.returncode in (255, 0xC000013A)
+    if p.returncode and STOP.wait(1 if by_signal else 0):
+        raise ScrapeError(t("stopped", "đã dừng"))
     return p.returncode == 0, p.stderr.decode("utf-8", "replace").strip()[-400:]
 
 
@@ -1169,6 +1215,8 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
         log(f"  {bold_red('✗')} {link(url)}\n      {gray('└')} {yellow(reason)}")
 
     def fetch(entry):
+        if STOP.is_set():
+            return entry, None, t("stopped", "đã dừng")
         try:
             return entry, tt.item(username, str(entry["id"])), None
         except ScrapeError as e:
@@ -1182,9 +1230,13 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
             return list(pool.map(fetch, batch))
 
     def finish(post: Post) -> None:
+        if STOP.is_set():
+            return
         try:
             name, size, note = finalize(post, out_dir, ffmpeg, opts)
         except (ScrapeError, OSError) as e:
+            if STOP.is_set():
+                return  # cut short by Ctrl+C: left unmarked so the next run retries it
             progress.mark(post.id, "error", error=str(e), url=post.url)
             fail(post.url, str(e))
             return
@@ -1209,7 +1261,7 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
         try:
             upcoming = meta_pool.submit(fetch_batch, batches[0])
             for bi, batch in enumerate(batches):
-                results = upcoming.result()
+                results = wait_result(upcoming)
                 cookie = tt.cookie_header()
                 upcoming = meta_pool.submit(fetch_batch, batches[bi + 1]) if bi + 1 < len(batches) else None
 
@@ -1273,10 +1325,14 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
 
                 mux_futures += [mux_pool.submit(finish, post) for post in posts]
             for fut in mux_futures:
-                fut.result()
+                wait_result(fut)
+        except KeyboardInterrupt:
+            STOP.set()
+            raise
         finally:
             meta_pool.shutdown(wait=False, cancel_futures=True)
-            mux_pool.shutdown(wait=True)
+            # On Ctrl+C, drop queued mux jobs; running ones were stopped by Ctrl+C too and end quickly.
+            mux_pool.shutdown(wait=True, cancel_futures=STOP.is_set())
 
     ok, failed, total_bytes = tally["ok"], tally["failed"], tally["bytes"]
     rows = write_csv(out_dir)
