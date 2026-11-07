@@ -6,6 +6,9 @@ from datetime import datetime, timezone
 
 import pytest
 
+from tiktok_dl.core import console
+from tiktok_dl.core.errors import RateLimited, ScrapeError
+
 PAGE = ('<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">'
         + json.dumps({"__DEFAULT_SCOPE__": {"webapp.app-context": {"user": {"uniqueId": "me"}}}})
         + "</script>")
@@ -42,7 +45,7 @@ def clock(tdl, monkeypatch):
 @pytest.fixture
 def logged(tdl, monkeypatch):
     lines: list[str] = []
-    monkeypatch.setattr(tdl, "log", lambda msg="", err=False: lines.append(msg))
+    monkeypatch.setattr(console, "log", lambda msg="", err=False: lines.append(msg))
     return lines
 
 
@@ -94,7 +97,7 @@ def test_403_backs_off_too(tdl, clock, logged):
 
 def test_gives_up_with_rate_limit_reason_and_warns_once(tdl, clock, logged):
     tt = client(tdl, [FakeResponse(429)] * 4)
-    with pytest.raises(tdl.ScrapeError, match="HTTP 429"):
+    with pytest.raises(ScrapeError, match="HTTP 429"):
         tt.whoami()
     assert gaps(tt) == [5.0, 10.0, 20.0]
     assert len(logged) == 1
@@ -123,15 +126,15 @@ def test_pause_is_shared_by_later_requests(tdl, clock, logged):
 def test_run_stops_after_too_many_rate_limited_answers_in_a_row(tdl, clock, logged):
     """A blocked IP must fail fast, not retry every post for hours."""
     tt = client(tdl, [FakeResponse(429)] * tdl.RATE_LIMIT_STREAK)
-    with pytest.raises(tdl.ScrapeError):   # first post: 4 attempts, then a normal failure
+    with pytest.raises(ScrapeError):   # first post: 4 attempts, then a normal failure
         tt.whoami()
-    with pytest.raises(tdl.RateLimited):   # the streak reaches the limit on the next post
+    with pytest.raises(RateLimited):   # the streak reaches the limit on the next post
         tt.whoami()
     assert len(tt.requested_at) == tdl.RATE_LIMIT_STREAK
 
     # Every later read gives up at once: no request, no sleep.
     clock.sleeps.clear()
-    with pytest.raises(tdl.RateLimited):
+    with pytest.raises(RateLimited):
         tt.whoami()
     assert len(tt.requested_at) == tdl.RATE_LIMIT_STREAK
     assert clock.sleeps == []
@@ -143,9 +146,9 @@ def test_any_other_answer_resets_the_streak(tdl, clock, logged):
                 + [FakeResponse(200, PAGE)])
     tt._streak = n - 3   # earlier rate-limited answers from other posts
     assert tt.whoami() == {"uniqueId": "me"}
-    with pytest.raises(tdl.ScrapeError) as e:   # 4 x 429: fails this post only
+    with pytest.raises(ScrapeError) as e:   # 4 x 429: fails this post only
         tt.whoami()
-    assert not isinstance(e.value, tdl.RateLimited)
+    assert not isinstance(e.value, RateLimited)
     assert tt.whoami() == {"uniqueId": "me"}   # n-4 x 429, then a success
     assert tt._streak == 0
 
@@ -154,7 +157,7 @@ def test_stop_makes_waiting_reads_give_up(tdl, clock, logged):
     tt = client(tdl, [])
     tt._pause_until = clock.now + 100
     tt.stop()
-    with pytest.raises(tdl.RateLimited):
+    with pytest.raises(RateLimited):
         tt._throttle()
     assert clock.sleeps == []
 
@@ -163,10 +166,10 @@ def test_save_profile_does_not_swallow_rate_limited(tdl, tmp_path, monkeypatch):
     tt = tdl.TikTok()
 
     def user(username):
-        raise tdl.RateLimited("blocked")
+        raise RateLimited("blocked")
 
     monkeypatch.setattr(tt, "user", user)
-    with pytest.raises(tdl.RateLimited):
+    with pytest.raises(RateLimited):
         tdl.save_profile(tt, "someone", tmp_path)
 
 

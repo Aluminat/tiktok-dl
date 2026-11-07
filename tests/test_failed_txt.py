@@ -6,6 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from tiktok_dl.core.errors import ScrapeError
+
 USER = "someone"
 VIDEO_URL = f"https://www.tiktok.com/@{USER}/video/111"
 PHOTO_URL = f"https://www.tiktok.com/@{USER}/photo/222"
@@ -146,7 +148,7 @@ def test_run_failure_uses_photo_link(tdl, tmp_path, monkeypatch, capsys):
         return item
 
     def broken_finalize(post, out_dir, ffmpeg, opts):
-        raise tdl.ScrapeError("mux failed")
+        raise ScrapeError("mux failed")
 
     monkeypatch.setattr(FakeTikTok, "item", photo_item)
     monkeypatch.setattr(tdl, "TikTok", FakeTikTok)

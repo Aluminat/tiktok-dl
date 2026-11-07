@@ -11,6 +11,8 @@ import requests
 from conftest import LAUNCHER
 
 import tiktok_dl
+from tiktok_dl.core.errors import ScrapeError
+from tiktok_dl.core.stop import STOP
 
 SOURCES = sorted(Path(tiktok_dl.__file__).parent.rglob("*.py")) + [LAUNCHER]
 
@@ -21,7 +23,7 @@ SOURCES = sorted(Path(tiktok_dl.__file__).parent.rglob("*.py")) + [LAUNCHER]
 
 def test_page_read_does_not_sleep_after_last_attempt(tdl, monkeypatch):
     sleeps = []
-    monkeypatch.setattr(tdl.STOP, "wait", sleeps.append)   # the wait between attempts; Ctrl+C ends it
+    monkeypatch.setattr(STOP, "wait", sleeps.append)   # the wait between attempts; Ctrl+C ends it
     tt = tdl.TikTok(wait=0)
     gets = []
 
@@ -30,7 +32,7 @@ def test_page_read_does_not_sleep_after_last_attempt(tdl, monkeypatch):
         raise requests.ConnectionError("offline")
 
     monkeypatch.setattr(tt.s, "get", broken)
-    with pytest.raises(tdl.ScrapeError, match="offline"):
+    with pytest.raises(ScrapeError, match="offline"):
         tt.item("tiktok", "123")
     assert len(gets) == 4
     assert sleeps == [1, 3, 5]   # waits between attempts only
@@ -38,7 +40,7 @@ def test_page_read_does_not_sleep_after_last_attempt(tdl, monkeypatch):
 
 def test_page_read_success_after_retry(tdl, monkeypatch):
     sleeps = []
-    monkeypatch.setattr(tdl.STOP, "wait", sleeps.append)   # the wait between attempts; Ctrl+C ends it
+    monkeypatch.setattr(STOP, "wait", sleeps.append)   # the wait between attempts; Ctrl+C ends it
     tt = tdl.TikTok(wait=0)
     page = ('<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">'
             '{"__DEFAULT_SCOPE__": {"webapp.video-detail": {"statusCode": 0, '
@@ -121,7 +123,7 @@ def is_closed(progress) -> bool:
 @pytest.fixture
 def page_read_fails(tdl, monkeypatch):
     def item(self, username, video_id):
-        raise tdl.ScrapeError("HTTP 403, page has no data")
+        raise ScrapeError("HTTP 403, page has no data")
 
     monkeypatch.setattr(tdl.TikTok, "item", item)
 

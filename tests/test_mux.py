@@ -5,6 +5,9 @@ from types import SimpleNamespace
 
 import pytest
 
+from tiktok_dl.core import console
+from tiktok_dl.core.errors import ScrapeError
+
 
 @pytest.mark.parametrize(
     ("has_cover", "has_subs", "expected"),
@@ -24,7 +27,7 @@ def test_mux_attempts(tdl, has_cover, has_subs, expected):
 @pytest.fixture
 def make_post(tdl, tmp_path, monkeypatch):
     """Build a fake post on disk; the cover and subtitle files exist only when asked for."""
-    monkeypatch.setattr(tdl, "LANG", "en")
+    monkeypatch.setattr(console, "LANG", "en")
     monkeypatch.setattr(tdl, "mux_tags", lambda item: {"title": "x"})
 
     def make(has_cover: bool, has_subs: bool):
@@ -67,7 +70,7 @@ def test_all_attempts_fail_are_distinct_and_keep_error(tdl, make_post, ffmpeg_ca
     calls, state = ffmpeg_calls
     state["ok_on"] = 0  # never succeed
     post = make_post(has_cover, has_subs)
-    with pytest.raises(tdl.ScrapeError) as exc:
+    with pytest.raises(ScrapeError) as exc:
         tdl.mux_video("ffmpeg", post, tmp_path / "out.mp4")
     assert len(calls) == len(tdl.mux_attempts(has_cover, has_subs))
     assert len(set(calls)) == len(calls)
@@ -80,7 +83,7 @@ def test_no_cover_no_subs_single_attempt(tdl, make_post, ffmpeg_calls, tmp_path)
     state["ok_on"] = 0
     post = make_post(False, False)
     post.cover = None
-    with pytest.raises(tdl.ScrapeError):
+    with pytest.raises(ScrapeError):
         tdl.mux_video("ffmpeg", post, tmp_path / "out.mp4")
     assert len(calls) == 1
 
@@ -110,7 +113,7 @@ def test_note_in_vietnamese(tdl, make_post, ffmpeg_calls, tmp_path, monkeypatch)
     calls, state = ffmpeg_calls
     state["ok_on"] = 3
     post = make_post(True, True)
-    monkeypatch.setattr(tdl, "LANG", "vi")
+    monkeypatch.setattr(console, "LANG", "vi")
     assert tdl.mux_video("ffmpeg", post, tmp_path / "out.mp4") == "bỏ ảnh bìa, bỏ phụ đề"
 
 
@@ -118,7 +121,7 @@ def test_attempt_commands_drop_the_right_inputs(tdl, make_post, ffmpeg_calls, tm
     calls, state = ffmpeg_calls
     state["ok_on"] = 0
     post = make_post(True, True)
-    with pytest.raises(tdl.ScrapeError):
+    with pytest.raises(ScrapeError):
         tdl.mux_video("ffmpeg", post, tmp_path / "out.mp4")
     cover, sub = str(post.cover), str(post.subs[0][0])
     assert cover in calls[0] and sub in calls[0]

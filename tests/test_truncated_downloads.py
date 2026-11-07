@@ -6,6 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from tiktok_dl.core import console
+
 MP4 = b"\x00\x00\x00\x20ftypisom\x00\x00\x02\x00" + b"\x00" * 2000
 HTML = b"<!DOCTYPE html><html><body>Access Denied</body></html>" + b" " * 100
 JPEG = b"\xff\xd8\xff\xe0\x00\x10JFIF" + b"\x00" * 100
@@ -19,7 +21,7 @@ SIZED = {A: SIZE, B: SIZE}
 
 @pytest.fixture(autouse=True)
 def english(tdl, monkeypatch):
-    monkeypatch.setattr(tdl, "LANG", "en")
+    monkeypatch.setattr(console, "LANG", "en")
 
 
 # --------------------------------------------------------------------------- #

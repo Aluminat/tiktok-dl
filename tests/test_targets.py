@@ -4,6 +4,8 @@ from __future__ import annotations
 import pytest
 import requests
 
+from tiktok_dl.core.errors import ScrapeError
+
 
 @pytest.mark.parametrize(
     ("text", "expected"),
@@ -39,7 +41,7 @@ def test_parse_target(tdl, text, expected):
     ],
 )
 def test_parse_target_invalid(tdl, text):
-    with pytest.raises(tdl.ScrapeError):
+    with pytest.raises(ScrapeError):
         tdl.parse_target(text)
 
 
@@ -97,7 +99,7 @@ def test_resolve_short_link_leaves_other_text(tdl, monkeypatch, text):
 
 def test_resolve_short_link_without_redirect(tdl, monkeypatch):
     monkeypatch.setattr(tdl.requests, "get", fake_get({"https://vt.tiktok.com/ZSabc/": FakeResponse()}, []))
-    with pytest.raises(tdl.ScrapeError):
+    with pytest.raises(ScrapeError):
         tdl.resolve_short_link("https://vt.tiktok.com/ZSabc/")
 
 
@@ -106,7 +108,7 @@ def test_resolve_short_link_network_error(tdl, monkeypatch):
         raise requests.ConnectionError("offline")
 
     monkeypatch.setattr(tdl.requests, "get", broken)
-    with pytest.raises(tdl.ScrapeError):
+    with pytest.raises(ScrapeError):
         tdl.resolve_short_link("https://vt.tiktok.com/ZSabc/")
 
 

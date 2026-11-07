@@ -5,6 +5,9 @@ import sys
 
 import pytest
 
+from tiktok_dl.core import console
+from tiktok_dl.core.errors import ScrapeError
+
 SECRET = "s3cr3t-session-id"
 
 
@@ -39,8 +42,8 @@ class TestMainSessionSource:
     @pytest.fixture
     def run_main(self, tdl, monkeypatch):
         # main() sets these module globals; restore them after the test.
-        monkeypatch.setattr(tdl, "LANG", tdl.LANG)
-        monkeypatch.setattr(tdl, "_COLOR", tdl._COLOR)
+        monkeypatch.setattr(console, "LANG", console.LANG)
+        monkeypatch.setattr(console, "_COLOR", console._COLOR)
         seen = []
 
         def fake_whoami(self):
@@ -164,11 +167,11 @@ class TestCookieFileCleanup:
     def test_deleted_after_failure(self, tdl, tmp_path, monkeypatch, error):
         def fake_list_posts(username, limit, cookiefile):
             if error == "scrape":
-                raise tdl.ScrapeError("boom")
+                raise ScrapeError("boom")
             raise KeyboardInterrupt
 
         monkeypatch.setattr(tdl, "list_posts", fake_list_posts)
-        with pytest.raises((tdl.ScrapeError, KeyboardInterrupt)):
+        with pytest.raises((ScrapeError, KeyboardInterrupt)):
             tdl.list_posts_with_session("user", None, SECRET, tmp_path)
         assert not list(tmp_path.iterdir())
 

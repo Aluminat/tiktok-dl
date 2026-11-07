@@ -7,6 +7,10 @@ import json
 import pytest
 import requests
 
+from tiktok_dl.core import console, tools
+from tiktok_dl.core.errors import Challenged, ChallengeStop, RateLimited, ScrapeError
+from tiktok_dl.core.stop import STOP
+
 # Shape of the real challenge page (~1.4 KB): "Please wait...", a _wafchallengeid element and a
 # waf-aiso script, and no embedded page data.
 CHALLENGE = (
@@ -55,14 +59,14 @@ def clock(tdl, monkeypatch):
     c.sleeps = []
     monkeypatch.setattr(tdl.time, "monotonic", c.monotonic)
     monkeypatch.setattr(tdl.time, "sleep", c.sleep)
-    monkeypatch.setattr(tdl.STOP, "wait", c.wait)
+    monkeypatch.setattr(STOP, "wait", c.wait)
     return c
 
 
 @pytest.fixture
 def logged(tdl, monkeypatch):
     lines: list[str] = []
-    monkeypatch.setattr(tdl, "log", lambda msg="", err=False: lines.append(msg))
+    monkeypatch.setattr(console, "log", lambda msg="", err=False: lines.append(msg))
     return lines
 
 
@@ -93,9 +97,9 @@ def test_detects_the_challenge_page(tdl):
 @pytest.mark.parametrize("status", [200, 403, 429])
 def test_challenge_raises_at_once_without_retry_or_backoff(tdl, clock, logged, status):
     tt = client(tdl, [FakeResponse(status, CHALLENGE)])
-    with pytest.raises(tdl.Challenged) as e:
+    with pytest.raises(Challenged) as e:
         tt.whoami()
-    assert not isinstance(e.value, tdl.RateLimited)
+    assert not isinstance(e.value, RateLimited)
     assert "bot protection" in str(e.value) and "--session-id" in str(e.value)
     assert tt.requests == 1
     assert clock.sleeps == []
@@ -105,9 +109,9 @@ def test_challenge_raises_at_once_without_retry_or_backoff(tdl, clock, logged, s
 
 def test_page_without_data_keeps_retrying(tdl, clock, logged):
     tt = client(tdl, [FakeResponse(200, NO_DATA)] * 4)
-    with pytest.raises(tdl.ScrapeError, match="page has no data") as e:
+    with pytest.raises(ScrapeError, match="page has no data") as e:
         tt.whoami()
-    assert not isinstance(e.value, tdl.Challenged)
+    assert not isinstance(e.value, Challenged)
     assert tt.requests == 4
     assert clock.sleeps == [1, 3, 5]   # waits between attempts only, none after the last one
 
@@ -121,17 +125,17 @@ def test_page_without_data_then_success(tdl, clock, logged):
 def test_challenge_streak_stops_the_run(tdl, clock, logged):
     tt = client(tdl, [FakeResponse(200, CHALLENGE)] * tdl.CHALLENGE_STREAK)
     for _ in range(tdl.CHALLENGE_STREAK - 1):
-        with pytest.raises(tdl.Challenged):
+        with pytest.raises(Challenged):
             tt.whoami()
-    with pytest.raises(tdl.ChallengeStop) as e:
+    with pytest.raises(ChallengeStop) as e:
         tt.whoami()
     assert "bot protection" in str(e.value)
     assert tt.requests == tdl.CHALLENGE_STREAK
 
     # Every later read gives up at once with the challenge reason: no request, no sleep.
-    with pytest.raises(tdl.ChallengeStop):
+    with pytest.raises(ChallengeStop):
         tt.whoami()
-    with pytest.raises(tdl.ChallengeStop):
+    with pytest.raises(ChallengeStop):
         tt._throttle()
     assert tt.requests == tdl.CHALLENGE_STREAK
     assert clock.sleeps == []
@@ -142,13 +146,13 @@ def test_any_other_answer_resets_the_challenge_streak(tdl, clock, logged):
     tt = client(tdl, [FakeResponse(200, CHALLENGE)] * n + [FakeResponse(200, PAGE)]
                 + [FakeResponse(200, CHALLENGE)] * n)
     for _ in range(n):
-        with pytest.raises(tdl.Challenged):
+        with pytest.raises(Challenged):
             tt.whoami()
     assert tt.whoami() == {"uniqueId": "me"}
     for _ in range(n):
-        with pytest.raises(tdl.Challenged) as e:
+        with pytest.raises(Challenged) as e:
             tt.whoami()
-        assert not isinstance(e.value, tdl.ChallengeStop)
+        assert not isinstance(e.value, ChallengeStop)
 
 
 # --------------------------------------------------------------------------- #
@@ -186,7 +190,7 @@ def site(tdl, monkeypatch, clock, logged):
         return FakeResponse(s.default_status, s.default)
 
     monkeypatch.setattr(requests.Session, "get", get)
-    monkeypatch.setattr(tdl, "status", lambda *a, **k: None)
+    monkeypatch.setattr(console, "status", lambda *a, **k: None)
     return s
 
 
@@ -207,9 +211,9 @@ def test_challenged_profile_stops_before_yt_dlp(tdl, tmp_path, site, monkeypatch
         raise AssertionError("yt-dlp must not be called")
 
     monkeypatch.setattr(tdl, "list_posts", list_posts)
-    with pytest.raises(tdl.Challenged) as e:
+    with pytest.raises(Challenged) as e:
         tdl.scrape_profile(f"@{USER}", opts(tmp_path), None, None)
-    assert not isinstance(e.value, tdl.RateLimited)   # main() moves on to the next profile
+    assert not isinstance(e.value, RateLimited)   # main() moves on to the next profile
     assert str(e.value).startswith(f"@{USER}: ") and "bot protection" in str(e.value)
     assert site.requested == [f"https://www.tiktok.com/@{USER}"]
 
@@ -222,7 +226,7 @@ def test_challenged_post_pages_stop_the_run_and_keep_finished_posts(tdl, tmp_pat
     site.default = CHALLENGE
     monkeypatch.setattr(tdl, "list_posts", lambda *a, **k: [{"id": pid} for pid in POST_IDS])
 
-    with pytest.raises(tdl.ChallengeStop):
+    with pytest.raises(ChallengeStop):
         tdl.scrape_profile(f"@{USER}", opts(tmp_path), None, None)
 
     # One read per post, no retries: profile + good posts + the challenge streak, then stop.
@@ -240,7 +244,7 @@ def test_challenged_post_pages_stop_the_run_and_keep_finished_posts(tdl, tmp_pat
 
     # A re-run skips the finished posts.
     site.requested.clear()
-    with pytest.raises(tdl.ChallengeStop):
+    with pytest.raises(ChallengeStop):
         tdl.scrape_profile(f"@{USER}", opts(tmp_path), None, None)
     assert not any(pid in url for url in site.requested for pid in good)
 
@@ -256,9 +260,9 @@ def test_rate_limited_post_pages_stop_the_run_and_rebuild_failed_txt(tdl, tmp_pa
     site.default_status = 429
     monkeypatch.setattr(tdl, "list_posts", lambda *a, **k: [{"id": pid} for pid in POST_IDS])
 
-    with pytest.raises(tdl.RateLimited) as e:
+    with pytest.raises(RateLimited) as e:
         tdl.scrape_profile(f"@{USER}", opts(tmp_path), None, None)
-    assert not isinstance(e.value, tdl.ChallengeStop)
+    assert not isinstance(e.value, ChallengeStop)
 
     failed = (out / "failed.txt").read_text(encoding="utf-8")
     assert "stale" not in failed
@@ -280,10 +284,10 @@ def test_rate_limited_post_pages_stop_the_run_and_rebuild_failed_txt(tdl, tmp_pa
 @pytest.fixture
 def run_main(tdl, monkeypatch, logged):
     """Run main() with these targets and a fake scrape_profile; returns (exit code, targets tried)."""
-    monkeypatch.setattr(tdl, "LANG", tdl.LANG)        # main() sets these globals: restore them
-    monkeypatch.setattr(tdl, "_COLOR", tdl._COLOR)
-    monkeypatch.setattr(tdl, "find_tool", lambda name: None)
-    monkeypatch.setattr(tdl, "find_ffmpeg", lambda: None)
+    monkeypatch.setattr(console, "LANG", console.LANG)        # main() sets these globals: restore them
+    monkeypatch.setattr(console, "_COLOR", console._COLOR)
+    monkeypatch.setattr(tools, "find_tool", lambda name: None)
+    monkeypatch.setattr(tools, "find_ffmpeg", lambda: None)
 
     def run(targets, scrape):
         tried = []
@@ -303,7 +307,7 @@ def run_main(tdl, monkeypatch, logged):
 
 def test_main_stops_the_run_on_challenge_streak(tdl, run_main, logged):
     def scrape(target):
-        raise tdl.ChallengeStop(tdl.challenge_message())
+        raise ChallengeStop(tdl.challenge_message())
 
     code, tried = run_main(["first", "second"], scrape)
     assert code == 1
@@ -315,7 +319,7 @@ def test_main_stops_the_run_on_challenge_streak(tdl, run_main, logged):
 def test_main_skips_a_challenged_profile_and_goes_on(tdl, run_main, logged):
     def scrape(target):
         if target == "first":
-            raise tdl.Challenged(f"@first: {tdl.challenge_message()}")
+            raise Challenged(f"@first: {tdl.challenge_message()}")
         return 0
 
     code, tried = run_main(["first", "second"], scrape)

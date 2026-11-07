@@ -6,9 +6,10 @@ found first, then PATH.
 """
 from pathlib import Path
 
-from tiktok_dl import cli
+from tiktok_dl.cli import main
+from tiktok_dl.core import tools
 
-cli.SCRIPT_DIR = Path(__file__).resolve().parent   # look for aria2c / ffmpeg next to this file first
+tools.SCRIPT_DIR = Path(__file__).resolve().parent   # look for aria2c / ffmpeg next to this file first
 
 if __name__ == "__main__":
-    cli.main()
+    main()

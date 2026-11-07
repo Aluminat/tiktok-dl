@@ -5,6 +5,8 @@ import locale
 
 import pytest
 
+from tiktok_dl.core import console, util
+
 
 @pytest.mark.parametrize(
     ("text", "expected"),
@@ -23,14 +25,14 @@ import pytest
     ],
 )
 def test_sanitize(tdl, text, expected):
-    assert tdl.sanitize(text) == expected
+    assert util.sanitize(text) == expected
 
 
 def test_sanitize_limit(tdl):
-    assert tdl.sanitize("x" * 100) == "x" * 60
-    assert tdl.sanitize("abcdef", limit=3) == "abc"
+    assert util.sanitize("x" * 100) == "x" * 60
+    assert util.sanitize("abcdef", limit=3) == "abc"
     # Cutting at the limit must not leave a trailing dot or space.
-    assert tdl.sanitize("abc. def", limit=5) == "abc"
+    assert util.sanitize("abc. def", limit=5) == "abc"
 
 
 @pytest.mark.parametrize(
@@ -38,13 +40,13 @@ def test_sanitize_limit(tdl):
     [(5, 5), ("5", 5), (" 7 ", 7), (5.9, 5), ("-3", -3), (None, None), ("", None), ("abc", None), ("5.0", None)],
 )
 def test_to_int(tdl, value, expected):
-    assert tdl.to_int(value) == expected
+    assert util.to_int(value) == expected
 
 
 def test_uniq(tdl):
-    assert tdl.uniq(["b", "a", "b", None, "", "c", "a"]) == ["b", "a", "c"]
-    assert tdl.uniq(x for x in (1, 0, 2, 1)) == [1, 2]
-    assert tdl.uniq([]) == []
+    assert util.uniq(["b", "a", "b", None, "", "c", "a"]) == ["b", "a", "c"]
+    assert util.uniq(x for x in (1, 0, 2, 1)) == [1, 2]
+    assert util.uniq([]) == []
 
 
 @pytest.mark.parametrize(
@@ -74,7 +76,7 @@ def test_base_name(tdl, item, expected):
     ],
 )
 def test_fmt_bytes(tdl, n, expected):
-    assert tdl.fmt_bytes(n) == expected
+    assert console.fmt_bytes(n) == expected
 
 
 @pytest.mark.parametrize(
@@ -93,7 +95,7 @@ def test_fmt_bytes(tdl, n, expected):
     ],
 )
 def test_fmt_eta(tdl, seconds, expected):
-    assert tdl.fmt_eta(seconds) == expected
+    assert console.fmt_eta(seconds) == expected
 
 
 @pytest.mark.parametrize(
@@ -110,7 +112,7 @@ def test_fmt_eta(tdl, seconds, expected):
     ],
 )
 def test_fmt_int(tdl, value, expected):
-    assert tdl.fmt_int(value) == expected
+    assert console.fmt_int(value) == expected
 
 
 class TestDetectLang:
@@ -131,24 +133,24 @@ class TestDetectLang:
         ],
     )
     def test_argv(self, tdl, argv, expected):
-        assert tdl.detect_lang(argv) == expected
+        assert console.detect_lang(argv) == expected
 
     def test_argv_wins_over_env(self, tdl, monkeypatch):
         monkeypatch.setenv("TIKTOK_DL_LANG", "vi")
-        assert tdl.detect_lang(["--lang=en"]) == "en"
+        assert console.detect_lang(["--lang=en"]) == "en"
 
     def test_lang_flag_without_value_falls_back(self, tdl, monkeypatch):
         monkeypatch.setenv("TIKTOK_DL_LANG", "vi")
-        assert tdl.detect_lang(["--lang"]) == "vi"
+        assert console.detect_lang(["--lang"]) == "vi"
 
     def test_env(self, tdl, monkeypatch):
         monkeypatch.setenv("TIKTOK_DL_LANG", "VI")
-        assert tdl.detect_lang([]) == "vi"
+        assert console.detect_lang([]) == "vi"
 
     def test_unknown_env_falls_back_to_locale(self, tdl, monkeypatch):
         monkeypatch.setenv("TIKTOK_DL_LANG", "fr")
         monkeypatch.setattr(locale, "getlocale", lambda *a: ("vi_VN", "UTF-8"))
-        assert tdl.detect_lang([]) == "vi"
+        assert console.detect_lang([]) == "vi"
 
     @pytest.mark.parametrize(
         ("loc", "expected"),
@@ -161,11 +163,11 @@ class TestDetectLang:
     )
     def test_locale(self, tdl, monkeypatch, loc, expected):
         monkeypatch.setattr(locale, "getlocale", lambda *a: loc)
-        assert tdl.detect_lang([]) == expected
+        assert console.detect_lang([]) == expected
 
     def test_locale_error(self, tdl, monkeypatch):
         def broken(*a):
             raise ValueError("bad locale")
 
         monkeypatch.setattr(locale, "getlocale", broken)
-        assert tdl.detect_lang([]) == "en"
+        assert console.detect_lang([]) == "en"

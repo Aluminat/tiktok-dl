@@ -16,6 +16,10 @@ from types import SimpleNamespace
 
 import pytest
 
+from tiktok_dl.core import console, tools
+from tiktok_dl.core.errors import ScrapeError
+from tiktok_dl.core.stop import STOP, wait_result
+
 N_POSTS = 12
 BATCH = 4
 
@@ -23,12 +27,12 @@ BATCH = 4
 @pytest.fixture(autouse=True)
 def clean_stop(tdl):
     """STOP is module state: never let one test's Ctrl+C leak into another test."""
-    tdl.STOP.clear()
+    STOP.clear()
     # interrupt_main() only raises KeyboardInterrupt when Python's own SIGINT handler is installed.
     old = signal.signal(signal.SIGINT, signal.default_int_handler)
     yield
     signal.signal(signal.SIGINT, old)
-    tdl.STOP.clear()
+    STOP.clear()
 
 
 def make_opts(tmp_path: Path, **overrides) -> SimpleNamespace:
@@ -92,8 +96,8 @@ def test_ctrl_c_in_download_phase_cancels_queued_mux_jobs(tdl, profile, monkeypa
             (out_dir / name).write_bytes(b"x" * 10)
             return name, 10, ""
         # The second one is muxing when Ctrl+C comes: ffmpeg gets it too and fails.
-        if tdl.STOP.wait(5):
-            raise tdl.ScrapeError("ffmpeg error: interrupted")
+        if STOP.wait(5):
+            raise ScrapeError("ffmpeg error: interrupted")
         raise AssertionError("STOP was never set")
 
     def fake_download(session, tasks, jobs):
@@ -108,13 +112,13 @@ def test_ctrl_c_in_download_phase_cancels_queued_mux_jobs(tdl, profile, monkeypa
     monkeypatch.setattr(tdl, "finalize", fake_finalize)
     monkeypatch.setattr(tdl, "download_requests", fake_download)
     # The first read-ahead request of batch 3 is still in flight when Ctrl+C comes.
-    profile.on_item[2 * BATCH + 1] = lambda: tdl.STOP.wait(2)
+    profile.on_item[2 * BATCH + 1] = lambda: STOP.wait(2)
 
     t0 = time.monotonic()
     with pytest.raises(KeyboardInterrupt):
         tdl.scrape_profile("someuser", make_opts(tmp_path), None, None)
     assert time.monotonic() - t0 < 3
-    assert tdl.STOP.is_set()
+    assert STOP.is_set()
 
     # Queued mux jobs were cancelled, not run.
     assert started == ["1", "2"]
@@ -136,7 +140,7 @@ def test_ctrl_c_in_metadata_phase_stops_reading(tdl, profile, monkeypatch, tmp_p
     def ctrl_c_during_request():
         # Ctrl+C while the main thread waits for metadata; this request is still in flight.
         _thread.interrupt_main()
-        tdl.STOP.wait(2)
+        STOP.wait(2)
 
     profile.on_item[2] = ctrl_c_during_request
 
@@ -144,7 +148,7 @@ def test_ctrl_c_in_metadata_phase_stops_reading(tdl, profile, monkeypatch, tmp_p
     with pytest.raises(KeyboardInterrupt):
         tdl.scrape_profile("someuser", make_opts(tmp_path), None, None)
     assert time.monotonic() - t0 < 3
-    assert tdl.STOP.is_set()
+    assert STOP.is_set()
 
     settle(profile.calls)
     assert len(profile.calls) == 2   # posts 3 and 4 of the batch were not read
@@ -156,8 +160,8 @@ def test_main_exits_130_with_one_stopped_message(tdl, profile, monkeypatch, tmp_
 
     monkeypatch.setattr(tdl, "download_requests", fake_download)
     monkeypatch.setattr(tdl, "finalize", lambda *args: pytest.fail("no post should be muxed"))
-    monkeypatch.setattr(tdl, "find_tool", lambda name: None)
-    monkeypatch.setattr(tdl, "find_ffmpeg", lambda: None)
+    monkeypatch.setattr(tools, "find_tool", lambda name: None)
+    monkeypatch.setattr(tools, "find_ffmpeg", lambda: None)
     monkeypatch.setattr(sys, "argv", ["tiktok-dl", "someuser", "-o", str(tmp_path), "--lang", "en", "--no-color"])
 
     with pytest.raises(SystemExit) as exc:
@@ -209,7 +213,7 @@ def test_download_requests_stops_mid_file_and_removes_partial(tdl, tmp_path):
     with pytest.raises(KeyboardInterrupt):
         tdl.download_requests(FakeSession(), tasks, 1)
     assert time.monotonic() - t0 < 2
-    assert tdl.STOP.is_set()
+    assert STOP.is_set()
     assert gets == ["https://example.invalid/0.mp4"]   # the queued files were never started
     assert responses[0].sent < 200
     # A half-written file would pass is_valid_file() and be muxed as if complete on the next run.
@@ -218,8 +222,8 @@ def test_download_requests_stops_mid_file_and_removes_partial(tdl, tmp_path):
 
 def test_run_ffmpeg_does_not_start_after_ctrl_c(tdl, monkeypatch):
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: pytest.fail("ffmpeg must not start"))
-    tdl.STOP.set()
-    with pytest.raises(tdl.ScrapeError):
+    STOP.set()
+    with pytest.raises(ScrapeError):
         tdl.run_ffmpeg(["ffmpeg", "-version"])
 
 
@@ -228,7 +232,7 @@ def test_mux_video_skips_fallbacks_when_ffmpeg_was_stopped(tdl, monkeypatch, tmp
 
     def fake_run(cmd, **kwargs):
         runs.append(cmd)
-        tdl.STOP.set()   # Ctrl+C arrives while ffmpeg runs, and ffmpeg exits with an error
+        STOP.set()   # Ctrl+C arrives while ffmpeg runs, and ffmpeg exits with an error
         return SimpleNamespace(returncode=255, stderr=b"Exiting normally, received signal 2.")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
@@ -236,7 +240,7 @@ def test_mux_video_skips_fallbacks_when_ffmpeg_was_stopped(tdl, monkeypatch, tmp
     cover.write_bytes(b"x" * 10)
     post = SimpleNamespace(item={"id": "1", "author": {"uniqueId": "u"}}, subs=[], cover=cover,
                            video=tmp_path / "video.mp4")
-    with pytest.raises(tdl.ScrapeError):
+    with pytest.raises(ScrapeError):
         tdl.mux_video("ffmpeg", post, tmp_path / "out.mp4")
     assert len(runs) == 1   # no "cover skipped" retry that could be recorded as done
 
@@ -245,9 +249,9 @@ def test_wait_result_returns_value_and_raises_errors(tdl):
     from concurrent.futures import ThreadPoolExecutor
 
     with ThreadPoolExecutor(1) as pool:
-        assert tdl.wait_result(pool.submit(lambda: 42)) == 42
+        assert wait_result(pool.submit(lambda: 42)) == 42
         with pytest.raises(ValueError):
-            tdl.wait_result(pool.submit(lambda: int("x")))
+            wait_result(pool.submit(lambda: int("x")))
 
 
 def test_wait_result_can_be_interrupted(tdl):
@@ -260,7 +264,7 @@ def test_wait_result_can_be_interrupted(tdl):
         threading.Timer(0.2, _thread.interrupt_main).start()
         t0 = time.monotonic()
         with pytest.raises(KeyboardInterrupt):
-            tdl.wait_result(fut)
+            wait_result(fut)
         assert time.monotonic() - t0 < 2
     finally:
         gate.set()
@@ -304,7 +308,7 @@ def test_download_aria2_can_be_interrupted(tdl, monkeypatch, tmp_path):
     with pytest.raises(KeyboardInterrupt):
         tdl.download_aria2("aria2c", tasks, "", 1, 1, 0)
     assert time.monotonic() - t0 < 2
-    assert tdl.STOP.is_set()
+    assert STOP.is_set()
     assert procs[0].terminated
     assert procs[0].input.decode("utf-8").startswith("https://example.invalid/1.mp4\n")
 
@@ -315,7 +319,7 @@ def test_mux_video_skips_fallbacks_when_ffmpeg_exits_before_stop_is_set(tdl, mon
     def fake_run(cmd, **kwargs):
         runs.append(cmd)
         # ffmpeg got Ctrl+C and exited; the main thread sets STOP a moment later.
-        threading.Timer(0.2, tdl.STOP.set).start()
+        threading.Timer(0.2, STOP.set).start()
         return SimpleNamespace(returncode=255, stderr=b"")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
@@ -323,7 +327,7 @@ def test_mux_video_skips_fallbacks_when_ffmpeg_exits_before_stop_is_set(tdl, mon
     cover.write_bytes(b"x" * 10)
     post = SimpleNamespace(item={"id": "1", "author": {"uniqueId": "u"}}, subs=[], cover=cover,
                            video=tmp_path / "video.mp4")
-    with pytest.raises(tdl.ScrapeError):
+    with pytest.raises(ScrapeError):
         tdl.mux_video("ffmpeg", post, tmp_path / "out.mp4")
     assert len(runs) == 1   # no "cover skipped" retry that could be recorded as done
 
@@ -340,7 +344,7 @@ def test_mux_video_still_falls_back_on_a_real_ffmpeg_error(tdl, monkeypatch, tmp
     post = SimpleNamespace(item={"id": "1", "author": {"uniqueId": "u"}}, subs=[], cover=cover,
                            video=tmp_path / "video.mp4")
     t0 = time.monotonic()
-    assert tdl.mux_video("ffmpeg", post, tmp_path / "out.mp4") == tdl.t("cover skipped", "bỏ ảnh bìa")
+    assert tdl.mux_video("ffmpeg", post, tmp_path / "out.mp4") == console.t("cover skipped", "bỏ ảnh bìa")
     assert time.monotonic() - t0 < 0.5   # no wait for STOP on an ordinary error
     assert codes == []
 

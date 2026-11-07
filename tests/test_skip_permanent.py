@@ -5,6 +5,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from tiktok_dl.core.errors import ScrapeError
+
 USER = "someone"
 
 
@@ -95,10 +97,10 @@ def failed_txt(tmp_path) -> str:
 # --------------------------------------------------------------------------- #
 
 @pytest.mark.parametrize(("make", "expected"), [
-    (lambda tdl: tdl.ScrapeError("post does not exist or was deleted", 10204), "skipped"),
-    (lambda tdl: tdl.ScrapeError("post is private", 10216), "error"),
-    (lambda tdl: tdl.ScrapeError("TikTok server error", 10101), "error"),
-    (lambda tdl: tdl.ScrapeError("connection reset"), "error"),           # network error, no code
+    (lambda tdl: ScrapeError("post does not exist or was deleted", 10204), "skipped"),
+    (lambda tdl: ScrapeError("post is private", 10216), "error"),
+    (lambda tdl: ScrapeError("TikTok server error", 10101), "error"),
+    (lambda tdl: ScrapeError("connection reset"), "error"),           # network error, no code
     (lambda tdl: no_link_item("1", isAd=True), "skipped"),               # ad
     (lambda tdl: no_link_item("1", isECVideo=True), "skipped"),          # TikTok Shop
     (lambda tdl: no_link_item("1"), "error"),                            # restricted, --session-id may help
@@ -112,13 +114,13 @@ def test_which_errors_are_permanent(tdl, tmp_path, run, make, expected):
 
 def test_finalize_error_is_temporary(tdl, tmp_path, run):
     run.behaviours["1"] = make_item("1")
-    run.finalize_errors["1"] = tdl.ScrapeError("ffmpeg error: broken pipe")
+    run.finalize_errors["1"] = ScrapeError("ffmpeg error: broken pipe")
     run()
     assert statuses(tdl, tmp_path)["1"] == "error"
 
 
 def test_rate_limit_is_temporary(tdl, tmp_path, run):
-    run.behaviours["1"] = tdl.ScrapeError("HTTP 429, page has no data")
+    run.behaviours["1"] = ScrapeError("HTTP 429, page has no data")
     run()
     assert statuses(tdl, tmp_path)["1"] == "error"
 
@@ -135,7 +137,7 @@ def test_plain_string_fetch_error_is_temporary(tdl, tmp_path, run, monkeypatch):
             return [(entry, item, str(err) if err else None) for entry, item, err in results]
 
     monkeypatch.setattr(tdl, "ThreadPoolExecutor", StringErrorPool)
-    run.behaviours["1"] = tdl.ScrapeError("unexpected page format", 10204)
+    run.behaviours["1"] = ScrapeError("unexpected page format", 10204)
     run.behaviours["2"] = make_item("2")
     run()
     assert statuses(tdl, tmp_path) == {"1": "error", "2": "done"}
@@ -153,7 +155,7 @@ def test_ad_post_is_permanent_but_restricted_is_not(tdl, tmp_path):
 # --------------------------------------------------------------------------- #
 
 def test_permanent_posts_fail_once_then_are_skipped(tdl, tmp_path, run, capsys):
-    run.behaviours["10"] = tdl.ScrapeError("post does not exist or was deleted", 10204)
+    run.behaviours["10"] = ScrapeError("post does not exist or was deleted", 10204)
     run.behaviours["20"] = no_link_item("20", isAd=True)
     run.behaviours["30"] = make_item("30")
 
@@ -185,7 +187,7 @@ def test_already_downloaded_message_unchanged_without_permanent(tdl, tmp_path, r
 
 
 def test_retry_all_fetches_skipped_posts_again(tdl, tmp_path, run, capsys):
-    run.behaviours["10"] = tdl.ScrapeError("post does not exist or was deleted", 10204)
+    run.behaviours["10"] = ScrapeError("post does not exist or was deleted", 10204)
     run.behaviours["20"] = no_link_item("20", isECVideo=True)
     run()
     assert run() == []
@@ -202,9 +204,9 @@ def test_retry_all_fetches_skipped_posts_again(tdl, tmp_path, run, capsys):
 
 
 def test_temporary_errors_are_retried_every_run(tdl, tmp_path, run):
-    run.behaviours["10"] = tdl.ScrapeError("connection reset")
+    run.behaviours["10"] = ScrapeError("connection reset")
     run.behaviours["20"] = make_item("20")
-    run.finalize_errors["20"] = tdl.ScrapeError("ffmpeg error: broken pipe")
+    run.finalize_errors["20"] = ScrapeError("ffmpeg error: broken pipe")
     run.behaviours["30"] = no_link_item("30")
 
     for _ in range(3):
@@ -215,7 +217,7 @@ def test_temporary_errors_are_retried_every_run(tdl, tmp_path, run):
 
 
 def test_metadata_only_skips_deleted_posts(tdl, tmp_path, run, capsys):
-    run.behaviours["10"] = tdl.ScrapeError("post does not exist or was deleted", 10204)
+    run.behaviours["10"] = ScrapeError("post does not exist or was deleted", 10204)
     run.behaviours["20"] = make_item("20")
     assert sorted(run(metadata_only=True)) == ["10", "20"]
     assert run(metadata_only=True) == []

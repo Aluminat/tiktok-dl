@@ -12,6 +12,8 @@ import types
 import pytest
 import requests
 
+from tiktok_dl.core.errors import ScrapeError
+
 USER = "someone"
 GOOD_IDS = ["7300000000000000001", "7300000000000000003"]
 BAD_ID = "7300000000000000002"
@@ -116,13 +118,13 @@ def assert_good_posts_downloaded(out_dir):
 )
 def test_item_missing_keys_raise_scrape_error(tdl, monkeypatch, item_info):
     mock_pages(monkeypatch, {post_url(BAD_ID): video_page(item_info)})
-    with pytest.raises(tdl.ScrapeError, match="unexpected page format"):
+    with pytest.raises(ScrapeError, match="unexpected page format"):
         tdl.TikTok(wait=0).item(USER, BAD_ID)
 
 
 def test_user_missing_user_info_raises_scrape_error(tdl, monkeypatch):
     mock_pages(monkeypatch, {f"https://www.tiktok.com/@{USER}": user_page(with_user_info=False)})
-    with pytest.raises(tdl.ScrapeError, match="unexpected page format"):
+    with pytest.raises(ScrapeError, match="unexpected page format"):
         tdl.TikTok(wait=0).user(USER)
 
 

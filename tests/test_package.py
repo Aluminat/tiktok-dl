@@ -17,6 +17,7 @@ import pytest
 from conftest import LAUNCHER, REPO, TEST_INSTALLED, VERSION_FILE
 
 import tiktok_dl
+from tiktok_dl.core import tools
 
 
 def run(*args, cwd=REPO):
@@ -82,55 +83,55 @@ def test_pyproject_matches_requirements():
 
 def test_find_tool_prefers_file_next_to_script(tdl, tmp_path, monkeypatch):
     (tmp_path / "aria2c.exe").write_bytes(b"")
-    monkeypatch.setattr(tdl, "SCRIPT_DIR", tmp_path)
-    monkeypatch.setattr(tdl.shutil, "which", lambda name: "/usr/bin/" + name)
-    assert tdl.find_tool("aria2c") == str(tmp_path / "aria2c.exe")
+    monkeypatch.setattr(tools, "SCRIPT_DIR", tmp_path)
+    monkeypatch.setattr(tools.shutil, "which", lambda name: "/usr/bin/" + name)
+    assert tools.find_tool("aria2c") == str(tmp_path / "aria2c.exe")
 
 
 def test_find_tool_finds_file_without_exe_next_to_script(tdl, tmp_path, monkeypatch):
     (tmp_path / "ffmpeg").write_bytes(b"")
-    monkeypatch.setattr(tdl, "SCRIPT_DIR", tmp_path)
-    monkeypatch.setattr(tdl.shutil, "which", lambda name: None)
-    assert tdl.find_tool("ffmpeg") == str(tmp_path / "ffmpeg")
+    monkeypatch.setattr(tools, "SCRIPT_DIR", tmp_path)
+    monkeypatch.setattr(tools.shutil, "which", lambda name: None)
+    assert tools.find_tool("ffmpeg") == str(tmp_path / "ffmpeg")
 
 
 def test_find_tool_falls_back_to_path(tdl, tmp_path, monkeypatch):
-    monkeypatch.setattr(tdl, "SCRIPT_DIR", tmp_path)   # nothing next to the script
-    monkeypatch.setattr(tdl.shutil, "which", lambda name: "/usr/bin/" + name)
-    assert tdl.find_tool("aria2c") == "/usr/bin/aria2c"
+    monkeypatch.setattr(tools, "SCRIPT_DIR", tmp_path)   # nothing next to the script
+    monkeypatch.setattr(tools.shutil, "which", lambda name: "/usr/bin/" + name)
+    assert tools.find_tool("aria2c") == "/usr/bin/aria2c"
 
 
 def test_find_ffmpeg_falls_back_to_imageio_ffmpeg(tdl, tmp_path, monkeypatch):
-    monkeypatch.setattr(tdl, "SCRIPT_DIR", tmp_path)
-    monkeypatch.setattr(tdl.shutil, "which", lambda name: None)
+    monkeypatch.setattr(tools, "SCRIPT_DIR", tmp_path)
+    monkeypatch.setattr(tools.shutil, "which", lambda name: None)
     fake = types.SimpleNamespace(get_ffmpeg_exe=lambda: "/imageio/ffmpeg")
     monkeypatch.setitem(sys.modules, "imageio_ffmpeg", fake)
-    assert tdl.find_ffmpeg() == "/imageio/ffmpeg"
+    assert tools.find_ffmpeg() == "/imageio/ffmpeg"
 
 
 def test_find_ffmpeg_none_when_nothing_found(tdl, tmp_path, monkeypatch):
-    monkeypatch.setattr(tdl, "SCRIPT_DIR", tmp_path)
-    monkeypatch.setattr(tdl.shutil, "which", lambda name: None)
+    monkeypatch.setattr(tools, "SCRIPT_DIR", tmp_path)
+    monkeypatch.setattr(tools.shutil, "which", lambda name: None)
     monkeypatch.setitem(sys.modules, "imageio_ffmpeg", None)   # import fails
-    assert tdl.find_ffmpeg() is None
+    assert tools.find_ffmpeg() is None
 
 
 def test_script_dir(tdl):
     if TEST_INSTALLED:
         # An installed copy does not look in the clone; tools come from PATH or imageio-ffmpeg.
-        assert tdl.SCRIPT_DIR != REPO
+        assert tools.SCRIPT_DIR != REPO
     else:
-        assert tdl.SCRIPT_DIR == REPO
+        assert tools.SCRIPT_DIR == REPO
 
 
 def test_launcher_sets_tools_dir(tdl, tmp_path, monkeypatch):
-    monkeypatch.setattr(tdl, "SCRIPT_DIR", tdl.SCRIPT_DIR)   # restored afterwards
+    monkeypatch.setattr(tools, "SCRIPT_DIR", tools.SCRIPT_DIR)   # restored afterwards
     copy = tmp_path / "tiktok-dl.py"
     shutil.copyfile(LAUNCHER, copy)
     # run_name is not "__main__", so main() is not called. run_path does not change sys.path: the
     # launcher's imports find the package conftest already imported (clone or installed).
     runpy.run_path(str(copy))
-    assert tdl.SCRIPT_DIR == copy.resolve().parent   # resolved like the launcher does (Windows 8.3 / case)
+    assert tools.SCRIPT_DIR == copy.resolve().parent   # resolved like the launcher does (Windows 8.3 / case)
 
 
 # --------------------------------------------------------------------------- #
