@@ -343,3 +343,56 @@ def test_mux_video_still_falls_back_on_a_real_ffmpeg_error(tdl, monkeypatch, tmp
     assert tdl.mux_video("ffmpeg", post, tmp_path / "out.mp4") == tdl.t("cover skipped", "bỏ ảnh bìa")
     assert time.monotonic() - t0 < 0.5   # no wait for STOP on an ordinary error
     assert codes == []
+
+
+def test_ctrl_c_rebuilds_failed_txt_and_keeps_partial_downloads(tdl, profile, monkeypatch, tmp_path):
+    out_dir = tmp_path / "someuser"
+    (out_dir / ".parts").mkdir(parents=True)
+    partial = out_dir / ".parts" / "video.mp4.aria2"   # a download the next run resumes
+    partial.write_bytes(b"resume data")
+    (out_dir / "failed.txt").write_text("stale list from an earlier run\n", encoding="utf-8")
+    progress = tdl.Progress(out_dir / ".progress.db")
+    progress.mark("99", "error", error="network error", url="https://www.tiktok.com/@someuser/video/99")
+    progress.close()
+
+    def fake_download(session, tasks, jobs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(tdl, "download_requests", fake_download)
+    monkeypatch.setattr(tdl, "finalize", lambda *args: pytest.fail("no post should be muxed"))
+    with pytest.raises(KeyboardInterrupt):
+        tdl.scrape_profile("someuser", make_opts(tmp_path), None, None)
+
+    failed = (out_dir / "failed.txt").read_text(encoding="utf-8")
+    assert "stale" not in failed
+    assert "https://www.tiktok.com/@someuser/video/99" in failed and "network error" in failed
+    assert partial.read_bytes() == b"resume data"
+
+
+def test_ctrl_c_removes_failed_txt_when_nothing_fails(tdl, profile, monkeypatch, tmp_path):
+    out_dir = tmp_path / "someuser"
+    out_dir.mkdir()
+    (out_dir / "failed.txt").write_text("stale list from an earlier run\n", encoding="utf-8")
+
+    def fake_download(session, tasks, jobs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(tdl, "download_requests", fake_download)
+    monkeypatch.setattr(tdl, "finalize", lambda *args: pytest.fail("no post should be muxed"))
+    with pytest.raises(KeyboardInterrupt):
+        tdl.scrape_profile("someuser", make_opts(tmp_path), None, None)
+    assert not (out_dir / "failed.txt").exists()
+
+
+def test_ctrl_c_still_exits_as_ctrl_c_when_failed_txt_cannot_be_written(tdl, profile, monkeypatch, tmp_path):
+    def locked(*args, **kwargs):
+        raise PermissionError("failed.txt is open in another program")
+
+    def fake_download(session, tasks, jobs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(tdl, "write_failed_file", locked)
+    monkeypatch.setattr(tdl, "download_requests", fake_download)
+    monkeypatch.setattr(tdl, "finalize", lambda *args: pytest.fail("no post should be muxed"))
+    with pytest.raises(KeyboardInterrupt):
+        tdl.scrape_profile("someuser", make_opts(tmp_path), None, None)

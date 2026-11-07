@@ -525,8 +525,10 @@ class TikTok:
         if self._stopped:
             if self._challenge_stop:
                 raise ChallengeStop(challenge_message())
-            raise RateLimited(t("stopped, TikTok keeps limiting requests",
-                                "đã dừng, TikTok liên tục giới hạn request"))
+            raise RateLimited(t("TikTok keeps refusing requests (HTTP 429/403); wait a while, or use a "
+                                "larger --wait",
+                                "TikTok liên tục từ chối request (HTTP 429/403); hãy đợi một lúc hoặc "
+                                "tăng --wait"))
 
     def _throttle(self) -> None:
         with self._lock:
@@ -1401,7 +1403,8 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
             fail(post.url, str(e))
             return
         except Exception as e:   # a bug or odd data in one post must not stop the run
-            reason = t(f"unexpected error ({type(e).__name__}: {e})", f"lỗi không lường trước ({type(e).__name__}: {e})")
+            reason = t(f"unexpected error ({type(e).__name__}: {e})",
+                       f"lỗi không lường trước ({type(e).__name__}: {e})")
             progress.mark(post.id, "error", error=reason, url=post.url)
             fail(post.url, reason)
             return
@@ -1417,8 +1420,8 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
     meta_pool = ThreadPoolExecutor(1)
     mux_pool = ThreadPoolExecutor(opts.mux_jobs)
     mux_futures = []
-    completed = False
-    stopped: Optional[ChallengeStop] = None
+    completed = interrupted = False
+    stopped: Optional[RateLimited] = None
     with bar:
         try:
             upcoming = meta_pool.submit(fetch_batch, batches[0])
@@ -1491,8 +1494,9 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
             completed = True
         except KeyboardInterrupt:
             STOP.set()
+            interrupted = True
             raise
-        except ChallengeStop as e:
+        except RateLimited as e:   # rate-limit streak or challenge-page streak (ChallengeStop)
             stopped = e  # write failed.txt first, then stop the run
         finally:
             tt.stop()  # queued page reads of an aborted batch give up instead of running on
@@ -1500,7 +1504,15 @@ def scrape_profile(target: str, opts, aria2: Optional[str], ffmpeg: Optional[str
             # On Ctrl+C, drop queued mux jobs; running ones were stopped by Ctrl+C too and end quickly.
             mux_pool.shutdown(wait=True, cancel_futures=STOP.is_set())
             if not completed and not stopped:
-                progress.close()   # the run is ending with an error: nothing below runs
+                # The run is ending with an error or Ctrl+C: nothing below runs. On Ctrl+C, still
+                # rebuild failed.txt (all marks are in now); the CSV and work folder are left as they are.
+                try:
+                    if interrupted:
+                        write_failed_file(progress, out_dir, username)
+                except (OSError, sqlite3.Error):
+                    pass   # best effort: a locked failed.txt must not hide the Ctrl+C (exit 130)
+                finally:
+                    progress.close()
 
     ok, failed, total_bytes = tally["ok"], tally["failed"], tally["bytes"]
     rows = write_csv(out_dir)
