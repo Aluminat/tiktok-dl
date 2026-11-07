@@ -12,7 +12,7 @@ from tiktok_dl import cli
 from tiktok_dl.core import console, flow, tools
 from tiktok_dl.core.errors import ScrapeError
 from tiktok_dl.core.site import Entry, Media, Post, Site, Verdict
-from tiktok_dl.sites import SITES, facebook, find_site, instagram, tiktok
+from tiktok_dl.sites import BY_NAME, SITES, facebook, find_site, instagram, tiktok
 
 INSTAGRAM_LINKS = [
     "https://www.instagram.com/reel/C1a2B3c4D5e/",
@@ -258,6 +258,22 @@ def test_link_from_another_site_than_the_site_option(target, name, message):
     with pytest.raises(ScrapeError) as e:
         find_site(target, name)
     assert str(e.value) == message
+
+
+@pytest.mark.parametrize("name", ["instagram", "facebook"])
+@pytest.mark.parametrize("target", LOOKALIKES + ["https://www.youtube.com/watch?v=1", "some.user/reels"])
+def test_unknown_link_is_not_a_username_of_the_site_option(target, name):
+    label = BY_NAME[name].label
+    with pytest.raises(ScrapeError) as e:
+        find_site(target, name)
+    assert str(e.value) == f"not a {label} link or username (--site {name}): {target}"
+
+
+def test_unknown_link_with_site_option_in_vietnamese(monkeypatch):
+    monkeypatch.setattr(console, "LANG", "vi")
+    with pytest.raises(ScrapeError) as e:
+        find_site("https://notinstagram.com/p/x", "instagram")
+    assert str(e.value) == "không phải link hay username Instagram (--site instagram): https://notinstagram.com/p/x"
 
 
 def test_site_mismatch_in_vietnamese(monkeypatch):

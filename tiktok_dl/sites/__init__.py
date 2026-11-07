@@ -18,7 +18,8 @@ BY_NAME = {site.name: site for site in SITES}   # the --site choices, in this or
 def find_site(target: str, name: Optional[str] = None):
     """The site of a target: the one its link belongs to. Anything else (a bare username, @username)
     belongs to the site called `name` (--site), or to the first site (TikTok) without it. Raises
-    ScrapeError when the link belongs to another site than `name`."""
+    ScrapeError when the link belongs to another site than `name`, or when `name` is not TikTok and
+    the target is a link of no known site."""
     for site in SITES:
         if site.matches(target):
             if name and site.name != name:
@@ -26,4 +27,12 @@ def find_site(target: str, name: Optional[str] = None):
                 raise ScrapeError(t(f"this link is for {site.label}, not {label} (--site {name}): {text}",
                                     f"link này của {site.label}, không phải {label} (--site {name}): {text}"))
             return site
-    return BY_NAME[name] if name else SITES[0]
+    if not name:
+        return SITES[0]
+    site, text = BY_NAME[name], target.strip()
+    # A link no site claims (another website, a look-alike host) is not a username of the --site site.
+    # TikTok already rejects these in its own username check, with its existing message.
+    if site is not SITES[0] and ("://" in text or "/" in text):
+        raise ScrapeError(t(f"not a {site.label} link or username (--site {name}): {text}",
+                            f"không phải link hay username {site.label} (--site {name}): {text}"))
+    return site
