@@ -35,7 +35,8 @@ class FakeResponse:
 
 @pytest.fixture
 def clock(tdl, monkeypatch):
-    """Replace time.monotonic/time.sleep: sleeping only moves the fake clock forward."""
+    """Replace time.monotonic/time.sleep and the STOP wait between attempts: waiting only moves the
+    fake clock forward."""
     class Clock:
         now = 1000.0
 
@@ -46,10 +47,15 @@ def clock(tdl, monkeypatch):
             self.sleeps.append(round(seconds, 3))
             self.now += seconds
 
+        def wait(self, seconds):   # STOP.wait(): no Ctrl+C in these tests, so it always times out
+            self.sleep(seconds)
+            return False
+
     c = Clock()
     c.sleeps = []
     monkeypatch.setattr(tdl.time, "monotonic", c.monotonic)
     monkeypatch.setattr(tdl.time, "sleep", c.sleep)
+    monkeypatch.setattr(tdl.STOP, "wait", c.wait)
     return c
 
 
@@ -103,7 +109,7 @@ def test_page_without_data_keeps_retrying(tdl, clock, logged):
         tt.whoami()
     assert not isinstance(e.value, tdl.Challenged)
     assert tt.requests == 4
-    assert clock.sleeps == [1, 3, 5, 7]
+    assert clock.sleeps == [1, 3, 5]   # waits between attempts only, none after the last one
 
 
 def test_page_without_data_then_success(tdl, clock, logged):
@@ -156,7 +162,7 @@ POST_IDS = [f"73000000000000000{i:02d}" for i in range(10)]
 def opts(tmp_path, **kw):
     base = dict(output=str(tmp_path), session_id=None, wait=0.0, proxy=None, limit=None,
                 metadata_only=True, workers=1, batch=1, mux_jobs=1, keep_parts=False,
-                jobs=1, connections=1)
+                jobs=1, connections=1, retry_all=False)
     base.update(kw)
     return argparse.Namespace(**base)
 
