@@ -1,5 +1,6 @@
-"""Page reads of one run: the --wait gap, the backoff pause after rate-limited answers and the streak
-stops. A site's web client subclasses PageReader; its classify() says what each answer means.
+"""Page reads of one run: the --wait gap, the backoff pause after rate-limited answers, the streak
+stops and the stop at once (Verdict.STOP). A site's web client subclasses PageReader; its classify()
+says what each answer means.
 """
 from __future__ import annotations
 
@@ -14,7 +15,7 @@ import requests
 
 from . import console
 from .console import t, warn
-from .errors import Challenged, ChallengeStop, RateLimited, ScrapeError
+from .errors import Challenged, ChallengeStop, RateLimited, ScrapeError, SiteStop
 from .site import Verdict
 from .stop import STOP
 
@@ -59,8 +60,12 @@ CHALLENGE_STREAK = 3
 
 class PageReader(ABC):
     """Page reads of one run, shared by all metadata threads: the --wait gap, the backoff pause after
-    RATE_LIMITED answers and the streak stops. A site's web client subclasses it, sets up self.s
-    (headers, proxy, cookies) and supplies classify() and blocked_message()."""
+    RATE_LIMITED answers, the streak stops and the stop at once after a STOP answer. A site's web
+    client subclasses it, sets up self.s (headers, proxy, cookies), sets `label` and `limit_codes`,
+    and supplies classify() and blocked_message() (and stop_message() if it ever answers STOP)."""
+
+    label: str = ""          # the site's name in messages, e.g. "TikTok"
+    limit_codes: str = ""    # the HTTP codes it rate-limits with, for messages, e.g. "429/403"
 
     def __init__(self, wait: float):
         self.s = requests.Session()
@@ -75,6 +80,7 @@ class PageReader(ABC):
         self._stopped = False     # set when the streak is too long or the run is stopping
         self._challenges = 0      # BLOCKED answers in a row
         self._challenge_stop = False  # stopped because of BLOCKED answers
+        self._stop_reason: Optional[str] = None   # stopped by a STOP answer: the site's message
 
     @abstractmethod
     def classify(self, response) -> Verdict:
@@ -84,18 +90,26 @@ class PageReader(ABC):
     def blocked_message(self) -> str:
         """Why a BLOCKED answer failed the read (the site's own text)."""
 
+    def stop_message(self, response) -> str:
+        """Why a STOP answer ended the run and what the user can do (the site's own text)."""
+        return t(f"{self.label} refused the request (HTTP {response.status_code}), so the run stopped",
+                 f"{self.label} từ chối request (HTTP {response.status_code}) nên tool đã dừng")
+
     def stop(self) -> None:
         """Make queued and waiting page reads give up at once (run aborted or interrupted)."""
         self._stopped = True
 
     def _check_stopped(self) -> None:
         if self._stopped:
+            site, codes = self.label, self.limit_codes
             if self._challenge_stop:
-                raise ChallengeStop(self.blocked_message())
-            raise RateLimited(t("TikTok keeps refusing requests (HTTP 429/403); wait a while, or use a "
+                raise ChallengeStop(self.blocked_message(), site=site, codes=codes)
+            if self._stop_reason:
+                raise SiteStop(self._stop_reason, site=site, codes=codes)
+            raise RateLimited(t(f"{site} keeps refusing requests (HTTP {codes}); wait a while, or use a "
                                 "larger --wait",
-                                "TikTok liên tục từ chối request (HTTP 429/403); hãy đợi một lúc hoặc "
-                                "tăng --wait"))
+                                f"{site} liên tục từ chối request (HTTP {codes}); hãy đợi một lúc hoặc "
+                                "tăng --wait"), site=site, codes=codes)
 
     def _throttle(self) -> None:
         with self._lock:
@@ -131,6 +145,14 @@ class PageReader(ABC):
         self._check_stopped()
         raise Challenged(self.blocked_message())
 
+    def _site_stopped(self, r: requests.Response) -> None:
+        """A STOP answer: stop every page read of the run now, with the site's message, and raise."""
+        message = self.stop_message(r)
+        with self._backoff_lock:
+            if not self._stopped:
+                self._stopped, self._stop_reason = True, message
+        self._check_stopped()
+
     def _back_off(self, r: requests.Response, attempt: int) -> None:
         """Pause every page read after a rate-limited response; warn the user the first time."""
         delay = backoff_delay(attempt, retry_after_seconds(r.headers.get("Retry-After")))
@@ -139,14 +161,14 @@ class PageReader(ABC):
             first, self._warned = not self._warned, True
         if first:
             code = r.status_code
-            console.log(warn(t(f"TikTok is limiting requests (HTTP {code}). Slowing down and retrying; "
+            console.log(warn(t(f"{self.label} is limiting requests (HTTP {code}). Slowing down and retrying; "
                                "if it keeps happening, use a larger --wait or fewer --workers.",
-                               f"TikTok đang giới hạn request (HTTP {code}). Tool sẽ chậm lại rồi thử lại; "
+                               f"{self.label} đang giới hạn request (HTTP {code}). Tool sẽ chậm lại rồi thử lại; "
                                "nếu vẫn bị, hãy tăng --wait hoặc giảm --workers.")))
 
     def read(self, url: str, extract) -> dict:
         """GET a page and return extract(response), with up to 4 attempts. extract() gives None when
-        the page has no data."""
+        the page has no data; a ScrapeError it raises fails the read at once (no retry)."""
         last = t("no response", "không có phản hồi")
         attempts = 4
         for attempt in range(attempts):
@@ -154,13 +176,15 @@ class PageReader(ABC):
             try:
                 r = self.s.get(url, timeout=25)
                 verdict = self.classify(r)
+                if verdict is Verdict.STOP:
+                    self._site_stopped(r)  # raises: the whole run stops now
                 if verdict is Verdict.BLOCKED:
                     self._challenged()  # raises: retrying within seconds won't get past it
                 if verdict is Verdict.RATE_LIMITED:
                     # No pause after the last attempt: nothing retries it.
                     self._rate_limited(r, attempt, retry=attempt + 1 < attempts)
-                    last = t(f"HTTP {r.status_code}, TikTok is limiting requests",
-                             f"HTTP {r.status_code}, TikTok đang giới hạn request")
+                    last = t(f"HTTP {r.status_code}, {self.label} is limiting requests",
+                             f"HTTP {r.status_code}, {self.label} đang giới hạn request")
                     continue  # the backoff pause replaces the fixed retry delay below
                 with self._backoff_lock:
                     self._streak = 0

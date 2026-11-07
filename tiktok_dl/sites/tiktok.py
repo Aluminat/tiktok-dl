@@ -131,6 +131,9 @@ def classify(answer) -> Verdict:
 
 
 class TikTok(PageReader):
+    label = "TikTok"
+    limit_codes = "429/403"   # RATE_LIMIT_CODES, as the messages have always named them
+
     def __init__(self, session_id: Optional[str] = None, wait: float = 0.3, proxy: Optional[str] = None):
         super().__init__(wait)
         self.s.headers.update({

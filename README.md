@@ -5,7 +5,7 @@
 > [!WARNING]
 > **This project is for educational purposes only.** Do not use it to re-upload or sell other people's content.
 
-Download every video from a TikTok profile, with full metadata.
+Download every video from a TikTok profile, or a single Instagram reel, with full metadata.
 
 - Fast downloads with **aria2c**
 - **ffmpeg** adds title, author, date, description, stats, cover and subtitles to each MP4
@@ -69,6 +69,7 @@ python tiktok-dl.py @username
 | `python tiktok-dl.py https://vt.tiktok.com/XXXXXXXXX/` | Short links from the TikTok app work too |
 | `python tiktok-dl.py @username --lang vi` | Show messages in Vietnamese |
 | `python tiktok-dl.py @username --retry-all` | Also retry deleted and ad / TikTok Shop posts that re-runs skip |
+| `python tiktok-dl.py https://www.instagram.com/reel/XXXXXXXXXXX/` | Download one Instagram reel (needs a login, see [Instagram](#instagram)) |
 
 Files are saved in `downloads/<username>/`.
 
@@ -82,15 +83,17 @@ The tool works out the site from each link:
 | `instagram.com/<username>`, `.../reel/...`, `.../reels/...`, `.../p/...`, `.../tv/...` (also `www.` and `m.`) | Instagram |
 | `facebook.com/reel/...`, `.../watch/?v=...`, `.../<page>/videos/...`, `.../<page>/reels/...`, `.../share/r/...`, `.../share/v/...` (also `www.`, `m.` and `web.`), `fb.watch/...` | Facebook |
 
-**Instagram and Facebook are not supported yet.** Their links are recognised, but each one fails
-with "not supported yet" and the tool goes on with the next target.
+**Instagram:** single reel and video post links work (see [Instagram](#instagram)). Instagram
+profiles, photo posts and carousels are not supported yet. **Facebook is not supported yet.** Its
+links are recognised, but each one fails with "not supported yet" and the tool goes on with the next
+target.
 
 Without `--site`, a bare `username` or `@username` means TikTok and links from any site are
 accepted. With `--site instagram`, `--site facebook` or `--site tiktok`, usernames belong to that
 site and links must be from it: a link from a different site fails with an error, and the tool goes
 on with the next target.
 
-Each account gets its own folder (Instagram and Facebook use theirs once they are supported):
+Each account gets its own folder (Facebook uses its folder once it is supported):
 
 | Site | Folder |
 |---|---|
@@ -113,15 +116,17 @@ Run `python tiktok-dl.py -h` to see all options.
 
 ## Speed and rate limits
 
-The defaults are kept low so TikTok is less likely to block you or flag your account
-(more care matters when you use `--session-id`):
+The defaults are kept low so the site is less likely to block you or flag your account
+(more care matters when you are logged in). Each site has its own; the options override them:
 
-| Option | Default | What it sets |
-|---|---|---|
-| `-j`, `--jobs` | 16 | files aria2c downloads at once |
-| `-x`, `--connections` | 4 | aria2c connections per file (max 16) |
-| `-w`, `--workers` | 8 | threads reading post pages |
-| `--wait` | 0.3 | seconds between TikTok page requests |
+| Option | TikTok | Instagram | What it sets |
+|---|---|---|---|
+| `-j`, `--jobs` | 16 | 16 | files aria2c downloads at once |
+| `-x`, `--connections` | 4 | 4 | aria2c connections per file (max 16) |
+| `-w`, `--workers` | 8 | 1 | threads reading post pages |
+| `--wait` | 0.3 | 3 | seconds between page requests |
+
+The Instagram defaults are a cautious guess, not measured.
 
 You can raise them, for example `-x 8 --wait 0.1`, but going faster makes blocks more likely.
 
@@ -191,12 +196,65 @@ shell history. If both are set, `--session-id` wins.
 > If you log out of TikTok, the session ID stops working and you need to copy a new one.
 > Using a **secondary account** is safer.
 
+## Instagram
+
+Single **reel** and **video post** links work: `instagram.com/reel/...`, `.../reels/...`,
+`.../p/...` (when the post is one video) and `.../tv/...`, also with the username in front
+(`instagram.com/<username>/reel/...`). Whole profiles, photo posts and carousels are not supported
+yet. Each reel goes to `downloads/instagram/<username>/`, with the same MP4 tags, `videos.csv`,
+`failed.txt` and resume as TikTok.
+
+> [!WARNING]
+> Instagram only works **logged in**, with your account's `sessionid` cookie, and **Meta may ban
+> accounts that scrape**. Use a **secondary account**, not your main one.
+
+1. Open https://www.instagram.com in **Chrome** or **Edge** and log in (a secondary account).
+2. Press **F12**, go to **Application** → **Storage** → **Cookies** → `https://www.instagram.com`
+   (Firefox: **Storage** tab → **Cookies**).
+3. Type `sessionid` in the filter box and copy the **Value** of the row named exactly `sessionid`.
+4. Put it in the `INSTAGRAM_SESSIONID` environment variable. The commands ask for the value, so it
+   is not saved in your shell history:
+
+   PowerShell (Windows):
+   ```powershell
+   $env:INSTAGRAM_SESSIONID = Read-Host "sessionid"
+   ```
+   bash / zsh (Linux, macOS, Git Bash):
+   ```bash
+   read -rs -p "sessionid: " INSTAGRAM_SESSIONID && export INSTAGRAM_SESSIONID
+   ```
+   (zsh: `read -rs "INSTAGRAM_SESSIONID?sessionid: " && export INSTAGRAM_SESSIONID`)
+5. Download:
+   ```bash
+   python tiktok-dl.py https://www.instagram.com/reel/XXXXXXXXXXX/
+   ```
+
+`--ig-session-id PASTE_IT_HERE` works too, but is saved in your shell history; it wins over the
+environment variable. The cookie is only sent to instagram.com: it is never printed, written to a
+file, or given to aria2c. Without a cookie, the tool says so and makes no request.
+
+The tool asks Instagram for each post the same way its website does, slowly (3 s between requests,
+one at a time). When Instagram answers:
+
+- **too many requests (HTTP 429):** the tool slows down and retries, like TikTok.
+- **a check (`checkpoint_required` / `challenge_required`):** the run stops at once. Open Instagram
+  in a browser with the same account and clear the check yourself, then run the same command again.
+  The tool never tries to solve or skip it.
+- **`login_required`:** the run stops; the cookie expired or is wrong, copy a new one.
+- **`feedback_required`:** the run stops; Instagram is limiting the account. Wait hours or a day.
+
+Deleted posts and posts your account cannot see are marked `(skipped)` in `failed.txt` (when the
+link has the username in it, so the tool knows the folder) and re-runs skip them; `--retry-all`
+tries them again. A `/reel/...` link without the username is read once on every run to find its
+author's folder.
+
 ## Problems?
 
 - **Can't get the post list:** run `pip install -U yt-dlp`
 - **Some posts failed:** see `failed.txt` in the output folder (link + reason for each post), then run the same command again
 - **Ad / TikTok Shop videos fail:** TikTok does not give a download link for these on the web, even when you are logged in. They are listed in `failed.txt` so you can open them yourself, and re-runs skip them (use `--retry-all` to try again)
 - **Private account:** set `TIKTOK_SESSIONID` (or add `--session-id`), see [Get your session ID](#get-your-session-id-optional)
+- **Instagram stops with "pass a check", "logged out" or "limiting this account":** see [Instagram](#instagram)
 - **"TikTok's bot protection blocked the request (challenge page)":** TikTok answered with its "Please wait..." check page instead of the real page. The tool does not retry it: if the profile page is blocked, that profile is skipped; if 3 post pages in a row are blocked, the run stops (finished posts are kept and `failed.txt` says why). Try again later or from another network (VPN off, a different connection). `--session-id` does not help with this
 
 ## Contributing

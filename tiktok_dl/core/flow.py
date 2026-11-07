@@ -6,6 +6,7 @@ on the website; this loop is the same for every site.
 """
 from __future__ import annotations
 
+import copy
 import json
 import shutil
 import sqlite3
@@ -39,17 +40,34 @@ from .site import Site, Verdict
 from .stop import STOP, wait_result
 
 
+def run_settings(site_cls: type[Site], opts):
+    """A copy of opts for one run of this site: --wait, --workers and --connections the user left out
+    (None) take the site's defaults (Site.defaults), then are kept in range. A copy, because one opts
+    serves every target of the command line, and they may be on different sites."""
+    run = copy.copy(opts)
+    for key, value in site_cls.defaults.items():
+        if getattr(run, key, None) is None:
+            setattr(run, key, value)
+    run.workers = max(1, min(16, run.workers))
+    run.connections = max(1, min(16, run.connections))
+    return run
+
+
 def run_profile(site_cls: type[Site], target: str, opts, aria2: Optional[str], ffmpeg: Optional[str]) -> int:
     """Download one profile, or one post of it, with the given site. Returns the number of posts that
     failed in this run. Raises ScrapeError when the profile cannot be read at all, and RateLimited
-    (or ChallengeStop) when the run has to stop."""
+    (ChallengeStop, SiteStop) when the run has to stop."""
     profile, single = site_cls.parse(target)
+    opts = run_settings(site_cls, opts)
+    # Constructed before any folder is made: a site that needs a login fails here, with nothing written.
+    site = site_cls(profile, site_cls.session(opts), opts.wait, opts.proxy)
+    if profile is None:   # the link does not name the profile (e.g. an Instagram reel link): ask the site
+        profile = site.owner(single)
     out_dir = Path(opts.output).resolve() / site_cls.folder(profile)
     (out_dir / "metadata").mkdir(parents=True, exist_ok=True)
     work = out_dir / ".parts"
     work.mkdir(exist_ok=True)
     (work / "session-cookies.txt").unlink(missing_ok=True)  # left behind by older versions
-    site = site_cls(profile, opts.session_id, opts.wait, opts.proxy)
 
     console.log("\n" + bold_cyan(f"━━ @{profile} ") + gray("━" * max(4, 40 - len(profile))))
     info = site.save_profile(out_dir)
@@ -91,7 +109,7 @@ def run_profile(site_cls: type[Site], target: str, opts, aria2: Optional[str], f
     n = len(pending)
     if not n:
         console.log(green(t("  ✓ Nothing left to download.", "  ✓ Không còn bài nào cần tải.")))
-        records.write_csv(out_dir)
+        records.write_csv(out_dir, progress.files())
         records.write_failed_file(progress, out_dir, profile, site.link)
         progress.close()
         return 0
@@ -259,7 +277,7 @@ def run_profile(site_cls: type[Site], target: str, opts, aria2: Optional[str], f
                     progress.close()
 
     ok, failed, total_bytes = tally["ok"], tally["failed"], tally["bytes"]
-    rows = records.write_csv(out_dir)
+    rows = records.write_csv(out_dir, progress.files())
     if not opts.keep_parts and work.exists() and not any(p.is_dir() for p in work.iterdir()):
         shutil.rmtree(work, ignore_errors=True)
 

@@ -1,13 +1,14 @@
-"""tiktok-dl - download every video from a TikTok profile.
+"""tiktok-dl - download every video from a TikTok profile, and Instagram reels.
 
 How it works
 ------------
 1. Pick the site     sites.find_site()       the site a link belongs to, or --site for a username
-                                             (TikTok without it). Instagram and Facebook links
-                                             fail with "not supported yet" for now.
+                                             (TikTok without it). Facebook links fail with "not
+                                             supported yet" for now.
 2. List posts        Site.list_posts()       TikTok: yt-dlp's user extractor (flat list of post ids).
 3. Read each post    Site.read_post()        TikTok: the post page embeds its data in
                                              <script id="__UNIVERSAL_DATA_FOR_REHYDRATION__">.
+                                             Instagram: /api/v1/media/<id>/info/, logged in.
 4. Plan downloads    core.download.Download  video / cover / subtitles, or images + music for photo
                                              posts, from the URLs in Post.media().
 5. Download          download_aria2()        aria2c, one URL per file per attempt (falls back to
@@ -22,7 +23,7 @@ Code map
 --------
 cli.py              arguments, main(), scrape_profile() (picks the site for a target)
 core/console.py     message language (t()), colours, log(), status(), ProgressBar, formatters
-core/errors.py      ScrapeError, RateLimited, Challenged, ChallengeStop
+core/errors.py      ScrapeError, RateLimited, Challenged, ChallengeStop, SiteStop
 core/site.py        the site interface: Site, Post, Verdict (what an answer means), Entry, Media, ...;
                     Site.folder() is a profile's folder under --output (TikTok: no site folder)
 core/pacing.py      PageReader: --wait gap, backoff after rate-limited answers, streak stops
@@ -34,8 +35,8 @@ core/tools.py       finding aria2c / ffmpeg (next to tiktok-dl.py first, then PA
 core/stop.py        STOP (Ctrl+C), core/util.py: UA, sanitize(), ...
 sites/tiktok.py     everything TikTok: web client, page parsing, links, CSV row (flatten), MP4 tags,
                     post list (yt-dlp), session cookie
-sites/instagram.py  Instagram / Facebook: only their links are recognised so far
-sites/facebook.py
+sites/instagram.py  Instagram reels and video posts: API reader (logged in), CSV row, MP4 tags
+sites/facebook.py   Facebook: only its links are recognised so far
 sites/__init__.py   SITES and find_site(): which site a target goes to (--site)
 
 The core never contains a site's URLs, JSON keys or bot-protection markers (docs/adr/0002).

@@ -21,6 +21,8 @@ SITE_SPECIFIC = [
     "uniqueId", "statusCode", "subtitleInfos", "LanguageCodeName", "webapp.", "aweme", "isECVideo",
     "10204",   # TikTok's deleted-post code
     "instagram.com", "facebook.com", "fb.watch",
+    "X-IG-App-ID", "checkpoint_required", "challenge_required", "login_required", "feedback_required",
+    "video_versions", "image_versions2", "taken_at", "product_type",
 ]
 
 # Names tests replace with monkeypatch.setattr on their defining module (or module state they set).
@@ -28,7 +30,7 @@ SITE_SPECIFIC = [
 PATCHED = {
     "log", "status", "LANG", "_COLOR", "find_tool", "find_ffmpeg", "SCRIPT_DIR", "download_requests", "finalize",
     "run_ffmpeg", "write_failed_file", "Progress", "scrape_profile", "list_posts", "save_profile", "TikTok",
-    "resolve_short_link",
+    "Instagram", "resolve_short_link",
 }
 
 
