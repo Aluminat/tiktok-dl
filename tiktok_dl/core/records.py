@@ -36,7 +36,7 @@ class Progress:
             self.db.commit()
 
     def skipped(self) -> set[str]:
-        """Ids of posts that can never be downloaded (deleted, ad / TikTok Shop)."""
+        """Ids of posts that can never be downloaded (e.g. deleted, or an ad without a download link)."""
         with self.lock:
             return {row[0] for row in self.db.execute("SELECT id FROM posts WHERE status = 'skipped'")}
 
