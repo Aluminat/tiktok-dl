@@ -175,15 +175,21 @@ def statuses(tmp_path) -> dict:
 # Links
 # --------------------------------------------------------------------------- #
 
-def test_shortcode_and_media_id_match_yt_dlp():
-    from yt_dlp.extractor.instagram import _id_to_pk, _pk_to_id
+# Shortcode -> media id, as yt-dlp's _id_to_pk gives them (yt-dlp 2026.10.26).
+YT_DLP_IDS = {"C1a2B3c4D5e": "3268162102382050910", "B": "1", "CzWb3-Hr_Q9": "3230892376212894781",
+              "DAbCdEfGhIj": "3466375131966345763"}
 
-    for code in (CODE, "B", "CzWb3-Hr_Q9", "DAbCdEfGhIj"):
-        assert instagram.media_id(code) == str(_id_to_pk(code))
-        assert instagram.shortcode(instagram.media_id(code)) == _pk_to_id(_id_to_pk(code))
+
+@pytest.mark.parametrize(("code", "pk"), YT_DLP_IDS.items())
+def test_shortcode_and_media_id_match_yt_dlp(code, pk):
+    assert instagram.media_id(code) == pk
+    assert instagram.shortcode(pk) == code
+
+
+def test_long_shortcodes_and_full_ids():
     private = CODE + "x" * 28   # links to posts of private accounts add 28 characters
-    assert instagram.media_id(private) == str(_id_to_pk(private)) == PK
-    assert instagram.shortcode(f"{PK}_123") == CODE
+    assert instagram.media_id(private) == PK == YT_DLP_IDS[CODE]
+    assert instagram.shortcode(f"{PK}_123") == CODE   # the "id" field: <media id>_<user id>
 
 
 @pytest.mark.parametrize(("link", "profile", "kind"), [

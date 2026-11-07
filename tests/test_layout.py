@@ -30,7 +30,7 @@ SITE_SPECIFIC = [
 PATCHED = {
     "log", "status", "LANG", "_COLOR", "find_tool", "find_ffmpeg", "SCRIPT_DIR", "download_requests", "finalize",
     "run_ffmpeg", "write_failed_file", "Progress", "scrape_profile", "list_posts", "save_profile", "TikTok",
-    "resolve_short_link",
+    "Instagram", "resolve_short_link",
 }
 
 

@@ -279,7 +279,7 @@ def flatten(item: dict) -> dict:
         # Instagram's own columns
         "shortcode": code,
         "product_type": item.get("product_type"),
-        "views": to_int(item.get("view_count")),
+        "view_count": to_int(item.get("view_count")),   # older count; "plays" prefers play_count
         "has_audio": item.get("has_audio"),
         "location": (item.get("location") or {}).get("name"),
         "coauthors": " ".join(f"@{u['username']}" for u in item.get("coauthor_producers") or []
