@@ -434,7 +434,7 @@ class InstagramSite(Site):
         cookie_file = getattr(opts, "cookies", None)
         if getattr(opts, "ig_session_id", None) or not cookie_file:
             return getattr(opts, "ig_session_id", None)
-        jar = cookies.for_domain(cookies.load(cookie_file), "instagram.com")
+        jar = cookies.for_site(cookie_file, "instagram.com")
         return next((c.value for c in jar if c.name == "sessionid" and c.value), None)
 
     @staticmethod

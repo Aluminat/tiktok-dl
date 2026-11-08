@@ -410,7 +410,7 @@ class FacebookSite(Site):
     def _cookies(cookie_file: Optional[str]) -> list:
         if not cookie_file:
             return []
-        jar = cookies.for_domain(cookies.load(cookie_file), "facebook.com")
+        jar = cookies.for_site(cookie_file, "facebook.com")
         if not jar:
             raise ScrapeError(t(f"the --cookies file has no facebook.com cookies: {cookie_file}. Export it from a "
                                 "browser where you are logged in to Facebook.",

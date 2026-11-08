@@ -4,7 +4,7 @@ one login cookie.
 The file is read here, in memory, and never written, copied or printed: messages name the file, never a
 line of it. It is parsed by hand on purpose: the standard library's MozillaCookieJar and yt-dlp's cookie
 jar both put a bad line in their error text (and yt-dlp's jar writes the file back when it closes).
-Each site takes only its own domain's cookies (for_domain).
+Each site takes only its own domain's cookies (for_site).
 """
 from __future__ import annotations
 
@@ -53,3 +53,9 @@ def load(path: str) -> list[Cookie]:
 def for_domain(jar: list[Cookie], domain: str) -> list[Cookie]:
     """The cookies of `domain` and its subdomains (never of a look-alike such as "not" + domain)."""
     return [c for c in jar if c.domain.lstrip(".").lower() == domain or c.domain.lower().endswith("." + domain)]
+
+
+def for_site(path: str, domain: str) -> list[Cookie]:
+    """The cookies of `domain` (and its subdomains) in the --cookies file at `path`, read in memory.
+    Raises ScrapeError like load(). An empty list when the file has none: each site says what that means."""
+    return for_domain(load(path), domain)
