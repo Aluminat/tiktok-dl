@@ -222,10 +222,11 @@ Mỗi bài được lưu vào `downloads/instagram/<username>/`, cũng gắn met
 - Một bài chỉ xong khi **tất cả** file của bài đã có trên đĩa. Nếu một mục của bài nhiều ảnh/video
   bị lỗi hoặc tải không trọn vẹn, chưa có file nào của bài được đưa vào thư mục; lần chạy sau chỉ
   tải lại mục còn thiếu rồi mới lưu cả bài. Nếu bạn xoá một file của bài, lần chạy sau sẽ tải lại bài đó.
-- `--slideshow` ghép bài nhiều ảnh **chỉ toàn ảnh** thành một video slideshow `<tên>.mp4` thay cho
-  các ảnh (`--keep-images` giữ cả ảnh, `--slide-seconds` chỉnh số giây mỗi ảnh). Mặc định tắt, nên
-  bạn nhận được file gốc. Bài có video và bài một ảnh không bao giờ bị ghép thành slideshow. (Bài ảnh
-  TikTok mặc định được ghép slideshow; `--no-slideshow` để tắt.)
+- `--slideshow` ghép bài nhiều ảnh **chỉ toàn ảnh** thành một video slideshow `<tên>.mp4`. Video
+  slideshow **thay cho các ảnh**: ảnh không được lưu trừ khi bạn thêm `--keep-images`.
+  `--slide-seconds` chỉnh số giây mỗi ảnh. Mặc định tắt, nên bạn nhận được file gốc. Bài có video và
+  bài một ảnh không bao giờ bị ghép thành slideshow. (Bài ảnh TikTok mặc định được ghép slideshow;
+  `--no-slideshow` để tắt.)
 
 > [!WARNING]
 > Instagram chỉ tải được khi **đã đăng nhập**, bằng cookie `sessionid` của tài khoản, và **Meta có

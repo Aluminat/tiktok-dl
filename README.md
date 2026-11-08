@@ -223,11 +223,11 @@ supported yet. Each post goes to `downloads/instagram/<username>/`, with the sam
   comes down cut short, nothing of that post is put in the folder yet; the next run downloads only
   the missing item and then saves the whole post. If you delete one of its files, the next run
   downloads the post again.
-- `--slideshow` turns a carousel of **photos only** into one MP4 slideshow, `<name>.mp4`, instead of
-  the photos (`--keep-images` keeps the photos too, `--slide-seconds` sets the time per photo). It
-  is off by default, so you get the original files. A carousel with a video in it and a single photo
-  are never turned into a slideshow. (TikTok photo posts are slideshows by default; `--no-slideshow`
-  turns that off.)
+- `--slideshow` turns a carousel of **photos only** into one MP4 slideshow, `<name>.mp4`. The
+  slideshow **replaces the photos**: they are not saved unless you also add `--keep-images`.
+  `--slide-seconds` sets the time per photo. It is off by default, so you get the original files.
+  A carousel with a video in it and a single photo are never turned into a slideshow. (TikTok photo
+  posts are slideshows by default; `--no-slideshow` turns that off.)
 
 > [!WARNING]
 > Instagram only works **logged in**, with your account's `sessionid` cookie, and **Meta may ban
