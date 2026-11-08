@@ -1,5 +1,5 @@
-"""Which site a target goes to (sites.find_site), Facebook links and Instagram profiles failing with
-"not supported yet", and output folders per site (Site.folder). No test opens a link."""
+"""Which site a target goes to (sites.find_site), Facebook page links and Instagram profiles failing with
+"not supported", and output folders per site (Site.folder). No test opens a link."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -179,9 +179,16 @@ def ig_profile_message(target):
             f"(instagram.com/reel/... or /p/...): {target}")
 
 
+FB_PAGE = "https://www.facebook.com/SomePage"
+
+
+def fb_page_message(target):
+    return ("only Facebook reel links are supported (facebook.com/reel/<id>, fb.watch/..., "
+            f"facebook.com/watch/?v=<id>): {target}")
+
+
 @pytest.mark.parametrize(("url", "message"), [
-    (FACEBOOK_LINKS[0], f"Facebook is not supported yet: {FACEBOOK_LINKS[0]}"),
-    ("https://fb.watch/aBcD1234_x/", "Facebook is not supported yet: https://fb.watch/aBcD1234_x/"),
+    (FB_PAGE, fb_page_message(FB_PAGE)),
     (IG_PROFILE, ig_profile_message(IG_PROFILE)),
 ])
 def test_unsupported_link_fails_before_anything_is_written(tmp_path, url, message):
@@ -228,12 +235,12 @@ def run_main(monkeypatch, logged):
 
 
 def test_main_reports_unsupported_links_and_goes_on(run_main, logged, tmp_path):
-    ig, fb = IG_PROFILE, FACEBOOK_LINKS[-1]
+    ig, fb = IG_PROFILE, FB_PAGE
     code, tried = run_main(ig, fb, "@some.user", "-o", str(tmp_path))
     assert code == 1
     assert tried == [("instagram", ig), ("facebook", fb), ("tiktok", "@some.user")]
     errors = [line for line in logged if line.startswith("Error: ")]
-    assert errors == [f"Error: {ig_profile_message(ig)}", f"Error: Facebook is not supported yet: {fb}"]
+    assert errors == [f"Error: {ig_profile_message(ig)}", f"Error: {fb_page_message(fb)}"]
     assert list(tmp_path.iterdir()) == []
 
 

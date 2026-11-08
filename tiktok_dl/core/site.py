@@ -1,4 +1,4 @@
-"""The site interface: the only way the core reaches a site (TikTok, Instagram, later Facebook).
+"""The site interface: the only way the core reaches a site (TikTok, Instagram, Facebook).
 
 The core (download, mux, progress DB, CSV, failed.txt, backoff, resume) is the same for every site.
 A site module subclasses Site and Post and supplies the URLs, page parsing and rules of its website.
@@ -73,7 +73,7 @@ class Media:
     cover: Optional[str] = None
     subtitles: list[Subtitle] = field(default_factory=list)
     images: list[list[str]] = field(default_factory=list)  # photo posts: mirrors per image
-    audio: Optional[str] = None
+    audio: Optional[str] = None   # photo posts: the music; video posts: a separate sound stream to mux in
     # Posts saved item by item as their original files, in order (e.g. a photo, or a carousel of photos and
     # videos): <base>.<ext> for one item, <base>_01.<ext>, <base>_02.<ext>, ... for several. The post is
     # done only when every item is on disk. See docs/adr/0004.

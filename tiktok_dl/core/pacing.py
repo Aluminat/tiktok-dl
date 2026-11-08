@@ -166,15 +166,21 @@ class PageReader(ABC):
                                f"{self.label} đang giới hạn request (HTTP {code}). Tool sẽ chậm lại rồi thử lại; "
                                "nếu vẫn bị, hãy tăng --wait hoặc giảm --workers.")))
 
+    def fetch(self, url: str):
+        """One request of a page read: the answer classify() and extract() look at. A site that reads its
+        pages through a library (Facebook: yt-dlp) gives an answer with the same status_code and headers,
+        and raises requests.RequestException for a network error, so it is retried like one."""
+        return self.s.get(url, timeout=25)
+
     def read(self, url: str, extract) -> dict:
-        """GET a page and return extract(response), with up to 4 attempts. extract() gives None when
-        the page has no data; a ScrapeError it raises fails the read at once (no retry)."""
+        """GET a page (fetch()) and return extract(response), with up to 4 attempts. extract() gives None
+        when the page has no data; a ScrapeError it raises fails the read at once (no retry)."""
         last = t("no response", "không có phản hồi")
         attempts = 4
         for attempt in range(attempts):
             self._throttle()
             try:
-                r = self.s.get(url, timeout=25)
+                r = self.fetch(url)
                 verdict = self.classify(r)
                 if verdict is Verdict.STOP:
                     self._site_stopped(r)  # raises: the whole run stops now
