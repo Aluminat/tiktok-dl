@@ -2,7 +2,8 @@
 (sites.find_site(): the site of a link, or --site for a username).
 
 Each site reads its own login cookie (Site.session()): TikTok --session-id / TIKTOK_SESSIONID, Instagram
---ig-session-id / INSTAGRAM_SESSIONID. --check-session still calls the TikTok module directly.
+--ig-session-id / INSTAGRAM_SESSIONID or the --cookies file, Facebook the --cookies file (optional).
+--check-session still calls the TikTok module directly.
 """
 from __future__ import annotations
 
@@ -31,25 +32,26 @@ def main() -> None:
 
     p = argparse.ArgumentParser(
         prog="tiktok-dl",
-        description=t("Download every video from a TikTok profile, or an Instagram reel (aria2c + ffmpeg, with "
-                      "full metadata).",
-                      "Tải toàn bộ video của profile TikTok, hoặc reel Instagram (aria2c + ffmpeg, kèm đầy đủ "
-                      "metadata)."),
+        description=t("Download every video from a TikTok profile, or an Instagram or Facebook reel (aria2c + "
+                      "ffmpeg, with full metadata).",
+                      "Tải toàn bộ video của profile TikTok, hoặc reel Instagram, Facebook (aria2c + ffmpeg, kèm "
+                      "đầy đủ metadata)."),
         epilog=t("Examples:", "Ví dụ:")
                + "\n  python tiktok-dl.py @tiktok\n  python tiktok-dl.py tiktok -n 20 -j 16\n"
                "  python tiktok-dl.py https://www.tiktok.com/@tiktok/video/7704834703446117662\n"
                "  python tiktok-dl.py https://vt.tiktok.com/XXXXXXXXX/\n"
                "  python tiktok-dl.py @tiktok --lang vi\n"
-               "  python tiktok-dl.py https://www.instagram.com/reel/XXXXXXXXXXX/   (INSTAGRAM_SESSIONID)\n\n"
+               "  python tiktok-dl.py https://www.instagram.com/reel/XXXXXXXXXXX/   (INSTAGRAM_SESSIONID)\n"
+               "  python tiktok-dl.py https://www.facebook.com/reel/1234567890123456\n\n"
                + t("Put aria2c.exe and ffmpeg.exe next to tiktok-dl.py (or in PATH).",
                    "Đặt aria2c.exe và ffmpeg.exe cạnh tiktok-dl.py (hoặc trong PATH)."),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument("targets", nargs="*", metavar="profile",
-                   help=t("username, @username, profile link, video link, short link or Instagram reel link "
-                          "(several allowed)",
-                          "username, @username, link profile, link video, link rút gọn hoặc link reel Instagram "
-                          "(có thể nhập nhiều)"))
+                   help=t("username, @username, profile link, video link, short link, or Instagram / Facebook "
+                          "reel link (several allowed)",
+                          "username, @username, link profile, link video, link rút gọn, hoặc link reel Instagram / "
+                          "Facebook (có thể nhập nhiều)"))
     p.add_argument("--site", choices=tuple(BY_NAME),
                    help=t("the site usernames belong to (without it: tiktok); with it, links must be from this site",
                           "username thuộc trang nào (không có thì là tiktok); khi có, link phải thuộc đúng trang này"))
@@ -63,11 +65,11 @@ def main() -> None:
                    help=t("aria2c connections per file, max 16 (default: 4)",
                           "số kết nối aria2c cho mỗi file, tối đa 16 (mặc định: 4)"))
     p.add_argument("-w", "--workers", type=int,
-                   help=t("threads reading metadata (default: TikTok 8, Instagram 1)",
-                          "số luồng đọc metadata (mặc định: TikTok 8, Instagram 1)"))
+                   help=t("threads reading metadata (default: TikTok 8, Instagram and Facebook 1)",
+                          "số luồng đọc metadata (mặc định: TikTok 8, Instagram và Facebook 1)"))
     p.add_argument("--wait", type=float,
-                   help=t("seconds between page requests (default: TikTok 0.3, Instagram 3)",
-                          "giãn cách giữa các request trang, giây (mặc định: TikTok 0.3, Instagram 3)"))
+                   help=t("seconds between page requests (default: TikTok 0.3, Instagram 3, Facebook 2)",
+                          "giãn cách giữa các request trang, giây (mặc định: TikTok 0.3, Instagram 3, Facebook 2)"))
     p.add_argument("--batch", type=int, default=50,
                    help=t("posts per read-download-mux batch (default: 50)",
                           "số bài mỗi lô đọc-tải-mux (mặc định: 50)"))
@@ -108,6 +110,11 @@ def main() -> None:
                           'INSTAGRAM_SESSIONID environment variable instead',
                           'cookie "sessionid" tài khoản Instagram của bạn, cần cho link Instagram; an toàn hơn: '
                           'đặt biến môi trường INSTAGRAM_SESSIONID'))
+    p.add_argument("--cookies", metavar="FILE",
+                   help=t("a Netscape cookie file (cookies.txt) exported from your browser, for Facebook (reels "
+                          "behind a login wall) and Instagram; read in memory, never changed",
+                          "file cookie dạng Netscape (cookies.txt) xuất từ trình duyệt, cho Facebook (reel cần "
+                          "đăng nhập) và Instagram; chỉ đọc trong bộ nhớ, không bao giờ bị sửa"))
     p.add_argument("--check-session", action="store_true",
                    help=t("only check whether the session ID is logged in, then exit",
                           "chỉ kiểm tra session ID có đăng nhập được không rồi thoát"))
