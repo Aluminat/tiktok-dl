@@ -439,8 +439,7 @@ class InstagramSite(Site):
     @staticmethod
     def parse(target: str) -> tuple[Optional[str], Optional[Entry]]:
         """A post link (reel, video, photo or carousel) -> (the username in the link or None, the post).
-        Profiles fail: they come
-        in v2. Makes no request."""
+        A profile link fails: profiles come in v2. Makes no request."""
         text = target.strip()
         m = POST_LINK_RE.match(text)
         if not m:
