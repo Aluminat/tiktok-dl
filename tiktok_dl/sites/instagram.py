@@ -229,14 +229,15 @@ class Instagram(PageReader):
 MEDIA_TYPES = {1: "photo", 2: "video", 8: "carousel"}
 
 
-def _area(version: dict) -> int:
+def _pixels(version: dict) -> int:
+    """A version's size in pixels (width x height; 0 when unknown)."""
     return (to_int(version.get("width")) or 0) * (to_int(version.get("height")) or 0)
 
 
 def _largest(versions) -> list[dict]:
     """Versions with a URL, largest first."""
     versions = [v for v in versions or [] if isinstance(v, dict) and v.get("url")]
-    return sorted(versions, key=_area, reverse=True)
+    return sorted(versions, key=_pixels, reverse=True)
 
 
 def caption_text(item: dict) -> str:
@@ -328,7 +329,7 @@ def photo(node: dict) -> Optional[Item]:
     versions = _largest((node.get("image_versions2") or {}).get("candidates"))
     if not versions:
         return None
-    return Item(uniq(v["url"] for v in versions if _area(v) == _area(versions[0])))
+    return Item(uniq(v["url"] for v in versions if _pixels(v) == _pixels(versions[0])))
 
 
 def carousel_item(node: dict) -> Optional[Item]:

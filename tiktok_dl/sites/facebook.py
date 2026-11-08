@@ -256,7 +256,8 @@ def _usable(info: dict) -> list[dict]:
             and not str(f.get("protocol") or "").startswith(("m3u8", "http_dash_segments", "f4m", "rtmp"))]
 
 
-def _area(f: dict) -> tuple:
+def _format_rank(f: dict) -> tuple:
+    """How good a video format is, as a sort key: its pixels, then its height, bitrate and quality."""
     return ((to_int(f.get("width")) or 0) * (to_int(f.get("height")) or 0), to_int(f.get("height")) or 0,
             f.get("tbr") or 0, f.get("quality") or 0)
 
@@ -268,10 +269,10 @@ def streams(info: dict) -> tuple[list[dict], Optional[dict]]:
     video_only = [f for f in usable if f.get("vcodec") not in (None, "none") and f.get("acodec") == "none"]
     audio_only = [f for f in usable if f.get("vcodec") == "none" and f.get("acodec") not in (None, "none")]
     if video_only and audio_only:
-        return (sorted(video_only, key=_area, reverse=True),
+        return (sorted(video_only, key=_format_rank, reverse=True),
                 max(audio_only, key=lambda f: (f.get("abr") or f.get("tbr") or 0)))
     muxed = [f for f in usable if f.get("vcodec") != "none" and f.get("acodec") != "none"]
-    return sorted(muxed, key=_area, reverse=True), None
+    return sorted(muxed, key=_format_rank, reverse=True), None
 
 
 def media(info: dict) -> Media:
