@@ -73,7 +73,11 @@ class Media:
     cover: Optional[str] = None
     subtitles: list[Subtitle] = field(default_factory=list)
     images: list[list[str]] = field(default_factory=list)  # photo posts: mirrors per image
-    audio: Optional[str] = None   # photo posts: the music; video posts: a separate sound stream to mux in
+    # One field, two meanings, by the kind of post:
+    # - a photo post (images): its music, the sound of the slideshow (saved as .mp3 when the photos are);
+    # - a video post (video): its separate sound stream (e.g. DASH audio), muxed into the video.
+    # None: no music, or the video's sound is already in the video file. Unused by Media.items posts.
+    audio: Optional[str] = None
     # Posts saved item by item as their original files, in order (e.g. a photo, or a carousel of photos and
     # videos): <base>.<ext> for one item, <base>_01.<ext>, <base>_02.<ext>, ... for several. The post is
     # done only when every item is on disk. See docs/adr/0004.

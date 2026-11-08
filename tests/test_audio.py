@@ -51,6 +51,18 @@ def test_a_video_without_audio_stream_has_no_audio_task(tmp_path):
     assert p.audio is None
 
 
+def test_a_post_without_a_download_link_has_no_audio(tmp_path):
+    p = plan(tmp_path, Media(audio=AUDIO, unavailable="no link"))
+    assert p.tasks == [] and p.hidden == "no link"
+    assert p.audio is None
+
+
+def test_a_photo_post_downloads_its_music_after_the_images(tmp_path):
+    p = plan(tmp_path, Media(images=[["https://cdn.example/1.jpg"], ["https://cdn.example/2.jpg"]], audio=AUDIO))
+    assert [dest.name for _, dest, _ in p.tasks] == ["img_01.jpg", "img_02.jpg", "audio.mp3"]
+    assert p.audio.name == "audio.mp3"
+
+
 @pytest.fixture
 def ffmpeg(monkeypatch):
     calls = []
