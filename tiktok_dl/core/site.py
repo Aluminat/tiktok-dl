@@ -1,4 +1,4 @@
-"""The site interface: the only way the core reaches a site (TikTok, Instagram, later Facebook).
+"""The site interface: the only way the core reaches a site (TikTok, Instagram, Facebook).
 
 The core (download, mux, progress DB, CSV, failed.txt, backoff, resume) is the same for every site.
 A site module subclasses Site and Post and supplies the URLs, page parsing and rules of its website.

@@ -5,7 +5,7 @@
 > [!WARNING]
 > **Dự án chỉ phục vụ mục đích học tập.** Không dùng để đăng lại hay bán nội dung của người khác.
 
-Tải toàn bộ video của một profile TikTok, hoặc từng reel Instagram, kèm đầy đủ thông tin.
+Tải toàn bộ video của một profile TikTok, hoặc từng reel Instagram, Facebook, kèm đầy đủ thông tin.
 
 - Tải nhanh bằng **aria2c**
 - **ffmpeg** gắn tiêu đề, tác giả, ngày đăng, mô tả, lượt xem, ảnh bìa, phụ đề vào từng file MP4
@@ -70,6 +70,7 @@ python tiktok-dl.py @username
 | `python tiktok-dl.py @username --lang vi` | Hiện thông báo bằng tiếng Việt |
 | `python tiktok-dl.py @username --retry-all` | Thử lại cả bài đã xoá và bài quảng cáo / TikTok Shop mà các lần chạy lại bỏ qua |
 | `python tiktok-dl.py https://www.instagram.com/reel/XXXXXXXXXXX/` | Tải một reel Instagram (cần đăng nhập, xem [Instagram](#instagram)) |
+| `python tiktok-dl.py https://www.facebook.com/reel/1234567890123456` | Tải một reel Facebook (xem [Facebook](#facebook)) |
 
 File được lưu trong `downloads/<username>/`.
 
@@ -84,21 +85,23 @@ Tool tự nhận ra link thuộc trang nào:
 | `facebook.com/reel/...`, `.../watch/?v=...`, `.../<page>/videos/...`, `.../<page>/reels/...`, `.../share/r/...`, `.../share/v/...` (cả `www.`, `m.` và `web.`), `fb.watch/...` | Facebook |
 
 **Instagram:** tải được link từng reel và bài video (xem [Instagram](#instagram)). Chưa hỗ trợ cả
-profile Instagram, bài ảnh và bài nhiều ảnh/video. **Facebook chưa được hỗ trợ.** Tool nhận ra link
-Facebook, nhưng mỗi link sẽ báo lỗi "chưa hỗ trợ" rồi tool chuyển sang mục tiếp theo.
+profile Instagram, bài ảnh và bài nhiều ảnh/video. **Facebook:** tải được link từng reel
+(`facebook.com/reel/...`, `.../watch/?v=...` và `fb.watch/...`, xem [Facebook](#facebook)). Các link
+Facebook khác (trang, `.../videos/...`, `.../share/...`) báo lỗi kèm các dạng link được hỗ trợ, rồi
+tool chuyển sang mục tiếp theo.
 
 Không có `--site` thì `username` hoặc `@username` không kèm link được hiểu là TikTok, còn link của
 trang nào cũng được nhận. Khi có `--site instagram`, `--site facebook` hoặc `--site tiktok`, username
 thuộc trang đó và link phải thuộc đúng trang đó: link của trang khác sẽ báo lỗi, rồi tool chuyển
 sang mục tiếp theo.
 
-Mỗi tài khoản có một thư mục riêng (Facebook sẽ dùng thư mục của mình khi được hỗ trợ):
+Mỗi tài khoản có một thư mục riêng:
 
 | Trang | Thư mục |
 |---|---|
 | TikTok | `downloads/<username>/` |
 | Instagram | `downloads/instagram/<username>/` |
-| Facebook | `downloads/facebook/<page>/` |
+| Facebook | `downloads/facebook/<id trang>/` (số id của trang, hoặc id dạng `pfbid...`) |
 
 Link một bài đăng được lưu vào thư mục của tác giả bài đó, nên mỗi tài khoản chỉ có một
 `videos.csv`, một `failed.txt` và một file tiến độ. TikTok không có thư mục `tiktok/` vì trước đây
@@ -118,14 +121,14 @@ Chạy `python tiktok-dl.py -h` để xem tất cả tuỳ chọn.
 Mặc định được để thấp để trang web ít chặn hay đánh dấu tài khoản của bạn
 (càng nên cẩn thận khi đã đăng nhập). Mỗi trang có mặc định riêng; các tuỳ chọn sẽ ghi đè:
 
-| Tuỳ chọn | TikTok | Instagram | Tác dụng |
-|---|---|---|---|
-| `-j`, `--jobs` | 16 | 16 | số file aria2c tải cùng lúc |
-| `-x`, `--connections` | 4 | 4 | số kết nối aria2c cho mỗi file (tối đa 16) |
-| `-w`, `--workers` | 8 | 1 | số luồng đọc trang bài đăng |
-| `--wait` | 0.3 | 3 | số giây giãn cách giữa các request trang |
+| Tuỳ chọn | TikTok | Instagram | Facebook | Tác dụng |
+|---|---|---|---|---|
+| `-j`, `--jobs` | 16 | 16 | 16 | số file aria2c tải cùng lúc |
+| `-x`, `--connections` | 4 | 4 | 4 | số kết nối aria2c cho mỗi file (tối đa 16) |
+| `-w`, `--workers` | 8 | 1 | 1 | số luồng đọc trang bài đăng |
+| `--wait` | 0.3 | 3 | 2 | số giây giãn cách giữa các request trang |
 
-Mặc định của Instagram là ước lượng thận trọng, chưa đo đạc thực tế.
+Mặc định của Instagram và Facebook là ước lượng thận trọng, chưa đo đạc thực tế.
 
 Bạn có thể tăng lên, ví dụ `-x 8 --wait 0.1`, nhưng tải càng nhanh thì càng dễ bị chặn.
 
@@ -246,6 +249,63 @@ Bài đã xoá và bài tài khoản của bạn không xem được sẽ đư�
 có username, để tool biết thư mục) và các lần chạy lại sẽ bỏ qua chúng; thêm `--retry-all` để thử lại.
 Link `/reel/...` không có username sẽ được đọc một lần mỗi lần chạy để tìm thư mục của tác giả.
 
+## Facebook
+
+Tải được link từng **reel**: `facebook.com/reel/<id>`, `facebook.com/watch/?v=<id>` (cả `m.` và
+`web.`) và link rút gọn `fb.watch/...` (tool mở link rút gọn để tìm reel trước). Chưa hỗ trợ cả
+trang, story và highlight. Mỗi reel được lưu vào `downloads/facebook/<id trang>/`, cũng gắn metadata
+MP4, ghi `videos.csv`, `failed.txt` và tải tiếp được như TikTok. Với reel, Facebook không trả tên
+trang rõ ràng, nên thư mục dùng id của trang; tên trang nằm ở cột `nickname` của `videos.csv` và
+trong metadata MP4.
+
+```bash
+python tiktok-dl.py https://www.facebook.com/reel/1234567890123456
+```
+
+Cách hoạt động: [yt-dlp](https://github.com/yt-dlp/yt-dlp) **chỉ được dùng để tìm** link video,
+link âm thanh và thông tin của reel (bộ trích xuất Facebook của nó, dùng như thư viện). aria2c tải
+video và âm thanh (không có aria2c thì dùng Python `requests`), rồi ffmpeg ghép chúng thành một file
+MP4 kèm metadata. Tool không bao giờ dùng bộ tải hay các bước ffmpeg của yt-dlp. Không có ffmpeg thì
+video và âm thanh được lưu thành 2 file (`.mp4` và `.m4a`).
+
+Tool đọc từng reel chậm (2 giây giữa các request, mỗi lần một reel). Khi Facebook trả về:
+
+- **quá nhiều request (HTTP 429):** tool chậm lại rồi thử lại, như với TikTok.
+- **yêu cầu đăng nhập:** link đó báo lỗi và hướng dẫn dùng `--cookies` (xem bên dưới), rồi tool
+  chuyển sang mục tiếp theo.
+- **reel không tồn tại hoặc đã bị xoá:** link đó báo lỗi kèm lý do. Vì link reel không cho biết trang,
+  tool không có thư mục để ghi `(bỏ qua)`, nên lần chạy sau reel sẽ được đọc lại.
+
+Tool không lách bất cứ thứ gì: không giả trình duyệt hay giả bot thu thập của Facebook, và không bao
+giờ tìm cách vượt qua bước kiểm tra.
+
+### `--cookies`: reel cần đăng nhập
+
+Phần lớn reel công khai tải được mà không cần đăng nhập. Với reel bị yêu cầu đăng nhập, hãy đưa cho
+tool cookie Facebook của bạn dưới dạng **file cookie Netscape** (`cookies.txt`):
+
+> [!WARNING]
+> **Meta có thể khoá tài khoản tải tự động.** Hãy dùng **tài khoản phụ**, đừng dùng tài khoản chính.
+> File cookie có giá trị như mật khẩu: đừng chia sẻ, và xoá nó khi dùng xong.
+
+1. Đăng nhập https://www.facebook.com trên **Chrome**, **Edge** hoặc **Firefox** (tài khoản phụ).
+2. Cài một tiện ích trình duyệt xuất cookie theo định dạng **Netscape** (`cookies.txt`), rồi xuất
+   cookie của `facebook.com` ra file, ví dụ `fb-cookies.txt`.
+3. Tải:
+   ```bash
+   python tiktok-dl.py https://www.facebook.com/reel/1234567890123456 --cookies fb-cookies.txt
+   ```
+
+Đăng nhập Facebook dùng nhiều cookie (`c_user`, `xs`, ...), nên tool nhận cả file chứ không phải một
+giá trị. File chỉ được đọc trong bộ nhớ: nội dung không bao giờ được in ra, chép ra đĩa hay đưa vào
+dòng lệnh, và tool chỉ dùng cookie `facebook.com` trong file, chỉ cho facebook.com (không bao giờ
+cho file video, không bao giờ đưa cho aria2c). Nếu vẫn bị yêu cầu đăng nhập, cookie đã đăng xuất hoặc
+hết hạn: hãy xuất lại.
+
+`--cookies` cũng dùng được cho **Instagram**: khi không có `--ig-session-id` / `INSTAGRAM_SESSIONID`,
+tool lấy cookie `sessionid` của `instagram.com` trong file. Vì vậy một file xuất khi đang đăng nhập cả
+hai trang dùng được cho cả hai.
+
 ## Gặp lỗi?
 
 - **Không lấy được danh sách bài:** chạy `pip install -U yt-dlp`
@@ -253,6 +313,7 @@ Link `/reel/...` không có username sẽ được đọc một lần mỗi lầ
 - **Video quảng cáo / TikTok Shop bị lỗi:** TikTok không cung cấp link tải cho loại video này qua web, kể cả khi đã đăng nhập. Chúng được liệt kê trong `failed.txt` để bạn tự mở xem, và các lần chạy lại sẽ bỏ qua chúng (thêm `--retry-all` để thử lại)
 - **Tài khoản riêng tư:** đặt biến `TIKTOK_SESSIONID` (hoặc thêm `--session-id`), xem [Lấy session ID](#lấy-session-id-không-bắt-buộc)
 - **Instagram dừng với "qua bước kiểm tra", "chưa đăng nhập" hoặc "đang hạn chế tài khoản":** xem [Instagram](#instagram)
+- **"Facebook yêu cầu đăng nhập để xem reel này":** thêm `--cookies <file>`, xem [Facebook](#facebook). **"Facebook không trả dữ liệu reel":** chạy `pip install -U yt-dlp`
 - **"Lớp chống bot của TikTok đã chặn request (trang xác minh)":** TikTok trả về trang kiểm tra "Please wait..." thay vì trang thật. Tool không thử lại trường hợp này: nếu trang profile bị chặn, profile đó sẽ bị bỏ qua; nếu 3 trang bài đăng liên tiếp bị chặn, tool sẽ dừng (các bài đã xong vẫn được giữ và `failed.txt` ghi rõ lý do). Hãy thử lại sau hoặc dùng mạng khác (tắt VPN, đổi kết nối). `--session-id` không giúp được trường hợp này
 
 ## Đóng góp

@@ -1,7 +1,6 @@
 """One module per website. The core reaches them only through core.site.Site.
 
-Instagram downloads single reel / video post links; Facebook only recognises its links so far (they fail
-with "not supported yet")."""
+Instagram downloads single reel / video post links; Facebook single reel links."""
 from __future__ import annotations
 
 from typing import Optional

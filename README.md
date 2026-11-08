@@ -5,7 +5,7 @@
 > [!WARNING]
 > **This project is for educational purposes only.** Do not use it to re-upload or sell other people's content.
 
-Download every video from a TikTok profile, or a single Instagram reel, with full metadata.
+Download every video from a TikTok profile, or a single Instagram or Facebook reel, with full metadata.
 
 - Fast downloads with **aria2c**
 - **ffmpeg** adds title, author, date, description, stats, cover and subtitles to each MP4
@@ -70,6 +70,7 @@ python tiktok-dl.py @username
 | `python tiktok-dl.py @username --lang vi` | Show messages in Vietnamese |
 | `python tiktok-dl.py @username --retry-all` | Also retry deleted and ad / TikTok Shop posts that re-runs skip |
 | `python tiktok-dl.py https://www.instagram.com/reel/XXXXXXXXXXX/` | Download one Instagram reel (needs a login, see [Instagram](#instagram)) |
+| `python tiktok-dl.py https://www.facebook.com/reel/1234567890123456` | Download one Facebook reel (see [Facebook](#facebook)) |
 
 Files are saved in `downloads/<username>/`.
 
@@ -84,22 +85,23 @@ The tool works out the site from each link:
 | `facebook.com/reel/...`, `.../watch/?v=...`, `.../<page>/videos/...`, `.../<page>/reels/...`, `.../share/r/...`, `.../share/v/...` (also `www.`, `m.` and `web.`), `fb.watch/...` | Facebook |
 
 **Instagram:** single reel and video post links work (see [Instagram](#instagram)). Instagram
-profiles, photo posts and carousels are not supported yet. **Facebook is not supported yet.** Its
-links are recognised, but each one fails with "not supported yet" and the tool goes on with the next
-target.
+profiles, photo posts and carousels are not supported yet. **Facebook:** single reel links work
+(`facebook.com/reel/...`, `.../watch/?v=...` and `fb.watch/...`, see [Facebook](#facebook)). The
+other Facebook links (pages, `.../videos/...`, `.../share/...`) fail with an error naming the
+supported forms, and the tool goes on with the next target.
 
 Without `--site`, a bare `username` or `@username` means TikTok and links from any site are
 accepted. With `--site instagram`, `--site facebook` or `--site tiktok`, usernames belong to that
 site and links must be from it: a link from a different site fails with an error, and the tool goes
 on with the next target.
 
-Each account gets its own folder (Facebook uses its folder once it is supported):
+Each account gets its own folder:
 
 | Site | Folder |
 |---|---|
 | TikTok | `downloads/<username>/` |
 | Instagram | `downloads/instagram/<username>/` |
-| Facebook | `downloads/facebook/<page>/` |
+| Facebook | `downloads/facebook/<page id>/` (the page's number, or its `pfbid...` id) |
 
 A link to a single post is saved in its author's folder, so each account has one `videos.csv`,
 `failed.txt` and progress file. TikTok has no `tiktok/` folder because it was the only site
@@ -119,14 +121,14 @@ Run `python tiktok-dl.py -h` to see all options.
 The defaults are kept low so the site is less likely to block you or flag your account
 (more care matters when you are logged in). Each site has its own; the options override them:
 
-| Option | TikTok | Instagram | What it sets |
-|---|---|---|---|
-| `-j`, `--jobs` | 16 | 16 | files aria2c downloads at once |
-| `-x`, `--connections` | 4 | 4 | aria2c connections per file (max 16) |
-| `-w`, `--workers` | 8 | 1 | threads reading post pages |
-| `--wait` | 0.3 | 3 | seconds between page requests |
+| Option | TikTok | Instagram | Facebook | What it sets |
+|---|---|---|---|---|
+| `-j`, `--jobs` | 16 | 16 | 16 | files aria2c downloads at once |
+| `-x`, `--connections` | 4 | 4 | 4 | aria2c connections per file (max 16) |
+| `-w`, `--workers` | 8 | 1 | 1 | threads reading post pages |
+| `--wait` | 0.3 | 3 | 2 | seconds between page requests |
 
-The Instagram defaults are a cautious guess, not measured.
+The Instagram and Facebook defaults are a cautious guess, not measured.
 
 You can raise them, for example `-x 8 --wait 0.1`, but going faster makes blocks more likely.
 
@@ -248,6 +250,64 @@ link has the username in it, so the tool knows the folder) and re-runs skip them
 tries them again. A `/reel/...` link without the username is read once on every run to find its
 author's folder.
 
+## Facebook
+
+Single **reel** links work: `facebook.com/reel/<id>`, `facebook.com/watch/?v=<id>` (also `m.` and
+`web.`) and `fb.watch/...` short links (the tool follows the short link to the reel first). Pages,
+stories and highlights are not supported. Each reel goes to `downloads/facebook/<page id>/`, with
+the same MP4 tags, `videos.csv`, `failed.txt` and resume as TikTok. For reels Facebook does not give
+a clean page name, so the folder uses the page's id; the name is in the `nickname` column of
+`videos.csv` and in the MP4 tags.
+
+```bash
+python tiktok-dl.py https://www.facebook.com/reel/1234567890123456
+```
+
+How it works: [yt-dlp](https://github.com/yt-dlp/yt-dlp) is used **only to find** the reel's video
+link, audio link and metadata (its Facebook extractor, as a library). aria2c downloads the video
+and audio (or Python `requests` without aria2c), and ffmpeg muxes them into one MP4 with the tags.
+yt-dlp's own downloader and ffmpeg steps are never used. Without ffmpeg, the video and its sound
+are saved as two files (`.mp4` and `.m4a`).
+
+The tool reads each reel slowly (2 s between requests, one at a time). When Facebook answers:
+
+- **too many requests (HTTP 429):** the tool slows down and retries, like TikTok.
+- **a login wall:** that link fails with a message asking for `--cookies` (see below), and the
+  tool goes on with the next target.
+- **the reel does not exist or was deleted:** the link fails with that reason. As a reel link
+  does not name its page, the tool has no folder to mark it `(skipped)` in, so it is read again
+  on the next run.
+
+The tool does not get around anything: it uses no fake browser or crawler identity, and never
+tries to pass a check.
+
+### `--cookies`: reels behind a login wall
+
+Most public reels download without a login. For one that shows a login wall, give the tool your
+Facebook cookies as a **Netscape cookie file** (`cookies.txt`):
+
+> [!WARNING]
+> **Meta may ban accounts that scrape.** Use a **secondary account**, not your main one.
+> The cookie file works like your password: never share it, and delete it when you are done.
+
+1. In **Chrome**, **Edge** or **Firefox**, log in to https://www.facebook.com (a secondary account).
+2. Install a browser extension that exports cookies in the **Netscape** format (`cookies.txt`),
+   and export the cookies of `facebook.com` to a file, for example `fb-cookies.txt`.
+3. Download with it:
+   ```bash
+   python tiktok-dl.py https://www.facebook.com/reel/1234567890123456 --cookies fb-cookies.txt
+   ```
+
+Facebook's login uses several cookies (`c_user`, `xs`, ...), which is why it takes a file and not
+a single value. The file is only read, in memory: its contents are never printed, copied to disk,
+or put on a command line, and only its `facebook.com` cookies are used, for facebook.com only (never
+for the video files, never given to aria2c). If the wall is still there, the cookies are logged out
+or expired: export them again.
+
+`--cookies` works for **Instagram** too: when `--ig-session-id` / `INSTAGRAM_SESSIONID` is not set,
+the tool takes the `sessionid` cookie of `instagram.com` from the file. So one file exported while
+logged in to both sites serves both.
+
 ## Problems?
 
 - **Can't get the post list:** run `pip install -U yt-dlp`
@@ -255,6 +315,7 @@ author's folder.
 - **Ad / TikTok Shop videos fail:** TikTok does not give a download link for these on the web, even when you are logged in. They are listed in `failed.txt` so you can open them yourself, and re-runs skip them (use `--retry-all` to try again)
 - **Private account:** set `TIKTOK_SESSIONID` (or add `--session-id`), see [Get your session ID](#get-your-session-id-optional)
 - **Instagram stops with "pass a check", "logged out" or "limiting this account":** see [Instagram](#instagram)
+- **"Facebook shows a login wall for this reel":** add `--cookies <file>`, see [Facebook](#facebook). **"Facebook gave no reel data":** run `pip install -U yt-dlp`
 - **"TikTok's bot protection blocked the request (challenge page)":** TikTok answered with its "Please wait..." check page instead of the real page. The tool does not retry it: if the profile page is blocked, that profile is skipped; if 3 post pages in a row are blocked, the run stops (finished posts are kept and `failed.txt` says why). Try again later or from another network (VPN off, a different connection). `--session-id` does not help with this
 
 ## Contributing
