@@ -31,9 +31,9 @@ def main() -> None:
 
     p = argparse.ArgumentParser(
         prog="tiktok-dl",
-        description=t("Download every video from a TikTok profile, or an Instagram reel (aria2c + ffmpeg, with "
+        description=t("Download every video from a TikTok profile, or an Instagram post (aria2c + ffmpeg, with "
                       "full metadata).",
-                      "Tải toàn bộ video của profile TikTok, hoặc reel Instagram (aria2c + ffmpeg, kèm đầy đủ "
+                      "Tải toàn bộ video của profile TikTok, hoặc một bài Instagram (aria2c + ffmpeg, kèm đầy đủ "
                       "metadata)."),
         epilog=t("Examples:", "Ví dụ:")
                + "\n  python tiktok-dl.py @tiktok\n  python tiktok-dl.py tiktok -n 20 -j 16\n"
@@ -46,9 +46,9 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument("targets", nargs="*", metavar="profile",
-                   help=t("username, @username, profile link, video link, short link or Instagram reel link "
+                   help=t("username, @username, profile link, video link, short link or Instagram post link "
                           "(several allowed)",
-                          "username, @username, link profile, link video, link rút gọn hoặc link reel Instagram "
+                          "username, @username, link profile, link video, link rút gọn hoặc link bài Instagram "
                           "(có thể nhập nhiều)"))
     p.add_argument("--site", choices=tuple(BY_NAME),
                    help=t("the site usernames belong to (without it: tiktok); with it, links must be from this site",

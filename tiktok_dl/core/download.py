@@ -22,8 +22,9 @@ def base_name(post: Post) -> str:
 
 
 class Download:
-    """Which files one post needs and where they go: video, cover and subtitles, or the images and
-    music of a photo post. The URLs come from the site (Post.media())."""
+    """Which files one post needs and where they go: video, cover and subtitles, the images and music
+    of a photo post, or each item of a post saved item by item (Media.items). The URLs come from the
+    site (Post.media())."""
 
     def __init__(self, post: Post, work: Path, opts, site: Optional[Site] = None):
         self.post = post

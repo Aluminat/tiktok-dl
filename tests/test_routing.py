@@ -175,8 +175,8 @@ IG_PROFILE = "https://www.instagram.com/some.user/"
 
 
 def ig_profile_message(target):
-    return ("Instagram profiles are not supported yet, only links to a reel or video post "
-            f"(instagram.com/reel/...): {target}")
+    return ("Instagram profiles are not supported yet, only links to a single post "
+            f"(instagram.com/reel/... or /p/...): {target}")
 
 
 @pytest.mark.parametrize(("url", "message"), [
@@ -194,8 +194,8 @@ def test_unsupported_link_fails_before_anything_is_written(tmp_path, url, messag
 
 def test_unsupported_message_in_vietnamese(tmp_path, monkeypatch):
     monkeypatch.setattr(console, "LANG", "vi")
-    with pytest.raises(ScrapeError, match="^chưa hỗ trợ tải cả profile Instagram, chỉ link reel hoặc bài video "
-                                          r"\(instagram.com/reel/...\): https://www.instagram.com/some.user/$"):
+    with pytest.raises(ScrapeError, match="^chưa hỗ trợ tải cả profile Instagram, chỉ link từng bài "
+                                          r"\(instagram.com/reel/... hoặc /p/...\): https://www.instagram.com/some.user/$"):
         cli.scrape_profile(f" {IG_PROFILE} ", make_opts(tmp_path), None, None)
 
 

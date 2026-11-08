@@ -1,7 +1,9 @@
-"""Instagram: single reel / video post links (issue #32), read logged in with the user's sessionid cookie.
+"""Instagram: single post links (reels and video posts #32, photo posts and carousels #33), read logged in
+with the user's sessionid cookie.
 
 Everything specific to Instagram lives here: its URLs, the API answer keys and its stop answers.
-Photo posts and carousels come in #33, whole profiles in v2.
+Whole profiles come in v2. A photo post and a carousel are saved as their original files, item by item
+(core Media.items, docs/adr/0004).
 
 A post is read with the same request Instagram's website makes (and yt-dlp's Instagram extractor):
 GET /api/v1/media/<media id>/info/, where the media id is the link's shortcode read as a base-64
@@ -399,7 +401,7 @@ class InstagramPost(Post):
 # --------------------------------------------------------------------------- #
 
 class InstagramSite(Site):
-    """Instagram behind the core's site interface: single reel / video post links, logged in. A plain
+    """Instagram behind the core's site interface: single post links, logged in. A plain
     class, not a dataclass: it holds the session cookie, which must never show up in a repr."""
 
     name = "instagram"
@@ -426,15 +428,16 @@ class InstagramSite(Site):
 
     @staticmethod
     def parse(target: str) -> tuple[Optional[str], Optional[Entry]]:
-        """A reel / post link -> (the username in the link or None, the post). Profiles fail: they come
+        """A post link (reel, video, photo or carousel) -> (the username in the link or None, the post).
+        Profiles fail: they come
         in v2. Makes no request."""
         text = target.strip()
         m = POST_LINK_RE.match(text)
         if not m:
-            raise ScrapeError(t(f"Instagram profiles are not supported yet, only links to a reel or video post "
-                                f"(instagram.com/reel/...): {text}",
-                                f"chưa hỗ trợ tải cả profile Instagram, chỉ link reel hoặc bài video "
-                                f"(instagram.com/reel/...): {text}"))
+            raise ScrapeError(t(f"Instagram profiles are not supported yet, only links to a single post "
+                                f"(instagram.com/reel/... or /p/...): {text}",
+                                f"chưa hỗ trợ tải cả profile Instagram, chỉ link từng bài "
+                                f"(instagram.com/reel/... hoặc /p/...): {text}"))
         user, kind, code = m.group(1), m.group(2).lower(), m.group(3)
         if any(ch not in ALPHABET for ch in code) or (user and not USERNAME_RE.fullmatch(user)):
             raise ScrapeError(t(f"not a valid Instagram post link: {text}", f"link bài Instagram không hợp lệ: {text}"))
