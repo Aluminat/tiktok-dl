@@ -5,11 +5,12 @@
 > [!WARNING]
 > **Dự án chỉ phục vụ mục đích học tập.** Không dùng để đăng lại hay bán nội dung của người khác.
 
-Tải toàn bộ video của một profile TikTok, hoặc từng reel Instagram, Facebook, kèm đầy đủ thông tin.
+Tải toàn bộ video của một profile TikTok, từng bài Instagram (reel, video, ảnh hoặc bài nhiều
+ảnh/video), hoặc từng reel Facebook, kèm đầy đủ thông tin.
 
 - Tải nhanh bằng **aria2c**
 - **ffmpeg** gắn tiêu đề, tác giả, ngày đăng, mô tả, lượt xem, ảnh bìa, phụ đề vào từng file MP4
-- Bài đăng dạng ảnh được ghép thành video slideshow
+- Bài ảnh TikTok được ghép thành video slideshow; ảnh và bài nhiều ảnh/video Instagram giữ nguyên file gốc
 - Lưu toàn bộ thông tin vào `videos.csv` và `metadata/*.json`
 - Tắt giữa chừng thì chạy lại để tải tiếp
 
@@ -70,6 +71,7 @@ python tiktok-dl.py @username
 | `python tiktok-dl.py @username --lang vi` | Hiện thông báo bằng tiếng Việt |
 | `python tiktok-dl.py @username --retry-all` | Thử lại cả bài đã xoá và bài quảng cáo / TikTok Shop mà các lần chạy lại bỏ qua |
 | `python tiktok-dl.py https://www.instagram.com/reel/XXXXXXXXXXX/` | Tải một reel Instagram (cần đăng nhập, xem [Instagram](#instagram)) |
+| `python tiktok-dl.py https://www.instagram.com/p/XXXXXXXXXXX/` | Tải một bài ảnh hoặc bài nhiều ảnh/video Instagram, giữ nguyên file gốc |
 | `python tiktok-dl.py https://www.facebook.com/reel/1234567890123456` | Tải một reel Facebook (xem [Facebook](#facebook)) |
 
 File được lưu trong `downloads/<username>/`.
@@ -84,8 +86,8 @@ Tool tự nhận ra link thuộc trang nào:
 | `instagram.com/<username>`, `.../reel/...`, `.../reels/...`, `.../p/...`, `.../tv/...` (cả `www.` và `m.`) | Instagram |
 | `facebook.com/reel/...`, `.../watch/?v=...`, `.../<page>/videos/...`, `.../<page>/reels/...`, `.../share/r/...`, `.../share/v/...` (cả `www.`, `m.` và `web.`), `fb.watch/...` | Facebook |
 
-**Instagram:** tải được link từng reel và bài video (xem [Instagram](#instagram)). Chưa hỗ trợ cả
-profile Instagram, bài ảnh và bài nhiều ảnh/video. **Facebook:** tải được link từng reel
+**Instagram:** tải được link từng bài: reel, video, ảnh và bài nhiều ảnh/video (xem
+[Instagram](#instagram)). Chưa hỗ trợ cả profile Instagram. **Facebook:** tải được link từng reel
 (`facebook.com/reel/...`, `.../watch/?v=...` và `fb.watch/...`, xem [Facebook](#facebook)). Các link
 Facebook khác (trang, `.../videos/...`, `.../share/...`) báo lỗi kèm các dạng link được hỗ trợ, rồi
 tool chuyển sang mục tiếp theo.
@@ -200,11 +202,30 @@ trong lịch sử lệnh. Nếu đặt cả hai thì `--session-id` được ưu
 
 ## Instagram
 
-Tải được link từng **reel** và **bài video**: `instagram.com/reel/...`, `.../reels/...`,
-`.../p/...` (khi bài chỉ có một video) và `.../tv/...`, kể cả khi có username phía trước
-(`instagram.com/<username>/reel/...`). Chưa hỗ trợ cả profile, bài ảnh và bài nhiều ảnh/video.
-Mỗi reel được lưu vào `downloads/instagram/<username>/`, cũng gắn metadata MP4, ghi `videos.csv`,
+Tải được link từng bài: `instagram.com/reel/...`, `.../reels/...`, `.../p/...` và `.../tv/...`,
+kể cả khi có username phía trước (`instagram.com/<username>/reel/...`). Chưa hỗ trợ cả profile.
+Mỗi bài được lưu vào `downloads/instagram/<username>/`, cũng gắn metadata MP4, ghi `videos.csv`,
 `failed.txt` và tải tiếp được như TikTok.
+
+### Bài đăng được lưu thế nào
+
+`<tên>` là tên file như thường lệ: `<ngày>_<id bài>_<mô tả>`.
+
+| Bài đăng | File |
+|---|---|
+| Reel hoặc bài video | `<tên>.mp4`, có metadata và ảnh bìa |
+| Bài một ảnh | `<tên>.jpg`, ảnh gốc ở cỡ lớn nhất Instagram có |
+| Bài nhiều ảnh/video | Mỗi mục một file gốc, đúng thứ tự: `<tên>_01.jpg`, `<tên>_02.mp4`, `<tên>_03.jpg`, ... Ảnh và video có thể lẫn nhau; mỗi video được gắn metadata như reel |
+
+- `videos.csv` có một dòng cho mỗi bài. Cột `type` ghi `reel`, `video`, `photo` hoặc `carousel`
+  (bài nhiều ảnh/video), cột `file` liệt kê mọi file của bài, cách nhau bằng ` | `.
+- Một bài chỉ xong khi **tất cả** file của bài đã có trên đĩa. Nếu một mục của bài nhiều ảnh/video
+  bị lỗi hoặc tải không trọn vẹn, chưa có file nào của bài được đưa vào thư mục; lần chạy sau chỉ
+  tải lại mục còn thiếu rồi mới lưu cả bài. Nếu bạn xoá một file của bài, lần chạy sau sẽ tải lại bài đó.
+- `--slideshow` ghép bài nhiều ảnh **chỉ toàn ảnh** thành một video slideshow `<tên>.mp4` thay cho
+  các ảnh (`--keep-images` giữ cả ảnh, `--slide-seconds` chỉnh số giây mỗi ảnh). Mặc định tắt, nên
+  bạn nhận được file gốc. Bài có video và bài một ảnh không bao giờ bị ghép thành slideshow. (Bài ảnh
+  TikTok mặc định được ghép slideshow; `--no-slideshow` để tắt.)
 
 > [!WARNING]
 > Instagram chỉ tải được khi **đã đăng nhập**, bằng cookie `sessionid` của tài khoản, và **Meta có

@@ -37,7 +37,7 @@ core/tools.py       finding aria2c / ffmpeg (next to tiktok-dl.py first, then PA
 core/stop.py        STOP (Ctrl+C), core/util.py: UA, sanitize(), ...
 sites/tiktok.py     everything TikTok: web client, page parsing, links, CSV row (flatten), MP4 tags,
                     post list (yt-dlp), session cookie
-sites/instagram.py  Instagram reels and video posts: API reader (logged in), CSV row, MP4 tags
+sites/instagram.py  Instagram posts (reels, videos, photos, carousels): API reader (logged in), CSV row, MP4 tags
 sites/facebook.py   Facebook reels: yt-dlp extracts (information only), CSV row, MP4 tags
 sites/__init__.py   SITES and find_site(): which site a target goes to (--site)
 

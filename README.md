@@ -5,11 +5,12 @@
 > [!WARNING]
 > **This project is for educational purposes only.** Do not use it to re-upload or sell other people's content.
 
-Download every video from a TikTok profile, or a single Instagram or Facebook reel, with full metadata.
+Download every video from a TikTok profile, a single Instagram post (reel, video, photo or carousel),
+or a single Facebook reel, with full metadata.
 
 - Fast downloads with **aria2c**
 - **ffmpeg** adds title, author, date, description, stats, cover and subtitles to each MP4
-- Photo posts are turned into MP4 slideshows
+- TikTok photo posts are turned into MP4 slideshows; Instagram photos and carousels keep their original files
 - Saves all info to `videos.csv` and `metadata/*.json`
 - Stop anytime, run again to continue
 
@@ -70,6 +71,7 @@ python tiktok-dl.py @username
 | `python tiktok-dl.py @username --lang vi` | Show messages in Vietnamese |
 | `python tiktok-dl.py @username --retry-all` | Also retry deleted and ad / TikTok Shop posts that re-runs skip |
 | `python tiktok-dl.py https://www.instagram.com/reel/XXXXXXXXXXX/` | Download one Instagram reel (needs a login, see [Instagram](#instagram)) |
+| `python tiktok-dl.py https://www.instagram.com/p/XXXXXXXXXXX/` | Download one Instagram photo post or carousel, as its original files |
 | `python tiktok-dl.py https://www.facebook.com/reel/1234567890123456` | Download one Facebook reel (see [Facebook](#facebook)) |
 
 Files are saved in `downloads/<username>/`.
@@ -84,10 +86,10 @@ The tool works out the site from each link:
 | `instagram.com/<username>`, `.../reel/...`, `.../reels/...`, `.../p/...`, `.../tv/...` (also `www.` and `m.`) | Instagram |
 | `facebook.com/reel/...`, `.../watch/?v=...`, `.../<page>/videos/...`, `.../<page>/reels/...`, `.../share/r/...`, `.../share/v/...` (also `www.`, `m.` and `web.`), `fb.watch/...` | Facebook |
 
-**Instagram:** single reel and video post links work (see [Instagram](#instagram)). Instagram
-profiles, photo posts and carousels are not supported yet. **Facebook:** single reel links work
-(`facebook.com/reel/...`, `.../watch/?v=...` and `fb.watch/...`, see [Facebook](#facebook)). The
-other Facebook links (pages, `.../videos/...`, `.../share/...`) fail with an error naming the
+**Instagram:** single post links work: reels, videos, photos and carousels (see
+[Instagram](#instagram)). Instagram profiles are not supported yet. **Facebook:** single reel links
+work (`facebook.com/reel/...`, `.../watch/?v=...` and `fb.watch/...`, see [Facebook](#facebook)).
+The other Facebook links (pages, `.../videos/...`, `.../share/...`) fail with an error naming the
 supported forms, and the tool goes on with the next target.
 
 Without `--site`, a bare `username` or `@username` means TikTok and links from any site are
@@ -200,11 +202,32 @@ shell history. If both are set, `--session-id` wins.
 
 ## Instagram
 
-Single **reel** and **video post** links work: `instagram.com/reel/...`, `.../reels/...`,
-`.../p/...` (when the post is one video) and `.../tv/...`, also with the username in front
-(`instagram.com/<username>/reel/...`). Whole profiles, photo posts and carousels are not supported
-yet. Each reel goes to `downloads/instagram/<username>/`, with the same MP4 tags, `videos.csv`,
-`failed.txt` and resume as TikTok.
+Single post links work: `instagram.com/reel/...`, `.../reels/...`, `.../p/...` and `.../tv/...`,
+also with the username in front (`instagram.com/<username>/reel/...`). Whole profiles are not
+supported yet. Each post goes to `downloads/instagram/<username>/`, with the same MP4 tags,
+`videos.csv`, `failed.txt` and resume as TikTok.
+
+### How posts are saved
+
+`<name>` is the usual file name: `<date>_<post id>_<caption>`.
+
+| Post | Files |
+|---|---|
+| Reel or video post | `<name>.mp4`, with tags and cover |
+| Photo post | `<name>.jpg`, the original image at the largest size Instagram offers |
+| Carousel | One original file per item, in order: `<name>_01.jpg`, `<name>_02.mp4`, `<name>_03.jpg`, ... Photos and videos can be mixed; each video is tagged like a reel |
+
+- `videos.csv` has one row per post. Its `type` column says `reel`, `video`, `photo` or `carousel`,
+  and its `file` column lists every file of the post, separated by ` | `.
+- A post is finished only when **all** its files are on disk. If one item of a carousel fails or
+  comes down cut short, nothing of that post is put in the folder yet; the next run downloads only
+  the missing item and then saves the whole post. If you delete one of its files, the next run
+  downloads the post again.
+- `--slideshow` turns a carousel of **photos only** into one MP4 slideshow, `<name>.mp4`, instead of
+  the photos (`--keep-images` keeps the photos too, `--slide-seconds` sets the time per photo). It
+  is off by default, so you get the original files. A carousel with a video in it and a single photo
+  are never turned into a slideshow. (TikTok photo posts are slideshows by default; `--no-slideshow`
+  turns that off.)
 
 > [!WARNING]
 > Instagram only works **logged in**, with your account's `sessionid` cookie, and **Meta may ban

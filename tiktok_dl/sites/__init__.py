@@ -1,6 +1,6 @@
 """One module per website. The core reaches them only through core.site.Site.
 
-Instagram downloads single reel / video post links; Facebook single reel links."""
+Instagram downloads single post links (reels, videos, photos, carousels); Facebook single reel links."""
 from __future__ import annotations
 
 from typing import Optional

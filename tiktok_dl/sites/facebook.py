@@ -396,8 +396,9 @@ class FacebookSite(Site):
     name = "facebook"
     label = "Facebook"
     referer = f"{BASE}/"
-    # Unmeasured: slow on purpose, as Meta bans accounts that scrape. The flags override them.
-    defaults = {"wait": 2.0, "workers": 1, "connections": 4}
+    # Unmeasured: slow on purpose, as Meta bans accounts that scrape. The flags override them. The other
+    # defaults (e.g. slideshow, unused: reels have no photos) are the base ones.
+    defaults = {**Site.defaults, "wait": 2.0, "workers": 1, "connections": 4}
 
     def __init__(self, profile: Optional[str], cookie_file: Optional[str], wait: float, proxy: Optional[str]):
         self.profile = profile

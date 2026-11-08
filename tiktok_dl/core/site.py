@@ -52,6 +52,15 @@ class Subtitle:
 
 
 @dataclass
+class Item:
+    """One file of a post that is saved as its original files (Media.items): a photo, or a video that is
+    muxed with the post's tags like a single video post."""
+    urls: list[str]                 # mirrors of this one file
+    video: bool = False
+    cover: Optional[str] = None     # a video's cover image (embedded unless --no-cover)
+
+
+@dataclass
 class Media:
     """What a post offers for download. Mirrors are tried one per attempt (they need not be copies of
     one file).
@@ -65,6 +74,10 @@ class Media:
     subtitles: list[Subtitle] = field(default_factory=list)
     images: list[list[str]] = field(default_factory=list)  # photo posts: mirrors per image
     audio: Optional[str] = None   # photo posts: the music; video posts: a separate sound stream to mux in
+    # Posts saved item by item as their original files, in order (e.g. a photo, or a carousel of photos and
+    # videos): <base>.<ext> for one item, <base>_01.<ext>, <base>_02.<ext>, ... for several. The post is
+    # done only when every item is on disk. See docs/adr/0004.
+    items: list[Item] = field(default_factory=list)
     unavailable: Optional[str] = None   # why a video post has no download link (message)
     permanent: bool = False             # ... and no re-run can fix it
 
@@ -122,8 +135,9 @@ class Site(ABC):
     label: str = ""            # the site's name in messages, e.g. "TikTok"
     referer: str = ""          # aria2c --referer for downloads
     client: PageReader         # page reads; also the requests session (`client.s`) and cookies for downloads
-    # --wait, --workers and --connections when the user does not give them (core.flow.run_settings).
-    defaults: dict = {"wait": 0.3, "workers": 8, "connections": 4}
+    # --wait, --workers, --connections and --slideshow / --no-slideshow when the user does not give them
+    # (core.flow.run_settings).
+    defaults: dict = {"wait": 0.3, "workers": 8, "connections": 4, "slideshow": True}
 
     @classmethod
     def session(cls, opts) -> Optional[str]:

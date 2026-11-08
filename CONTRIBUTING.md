@@ -63,8 +63,10 @@ The app is the **`tiktok_dl/`** package; `tiktok-dl.py` only launches it. The do
   `tiktok_dl/sites/<site>.py`; the core reaches a site only through `core/site.py`. Don't add
   code to the launcher `tiktok-dl.py`. The version is `__version__` in `tiktok_dl/__init__.py`
   and nowhere else (`pyproject.toml` reads it). See
-  [docs/adr/0002](docs/adr/0002-package-with-shared-core-and-site-modules.md) and
-  [docs/adr/0003](docs/adr/0003-what-a-second-site-adds-to-the-site-interface.md).
+  [docs/adr/0002](docs/adr/0002-package-with-shared-core-and-site-modules.md),
+  [docs/adr/0003](docs/adr/0003-what-a-second-site-adds-to-the-site-interface.md),
+  [docs/adr/0004](docs/adr/0004-posts-saved-item-by-item.md) and
+  [docs/adr/0005](docs/adr/0005-facebook-reels-through-yt-dlp-extraction.md).
 - **Call helpers through their module.** Use `console.log(...)`, `console.status(...)`,
   `download.download_requests(...)` and the like instead of `from ... import log`, so tests can
   replace them (`tests/test_layout.py` checks this).

@@ -32,10 +32,10 @@ def main() -> None:
 
     p = argparse.ArgumentParser(
         prog="tiktok-dl",
-        description=t("Download every video from a TikTok profile, or an Instagram or Facebook reel (aria2c + "
-                      "ffmpeg, with full metadata).",
-                      "Tải toàn bộ video của profile TikTok, hoặc reel Instagram, Facebook (aria2c + ffmpeg, kèm "
-                      "đầy đủ metadata)."),
+        description=t("Download every video from a TikTok profile, an Instagram post, or a Facebook reel "
+                      "(aria2c + ffmpeg, with full metadata).",
+                      "Tải toàn bộ video của profile TikTok, một bài Instagram, hoặc reel Facebook (aria2c + "
+                      "ffmpeg, kèm đầy đủ metadata)."),
         epilog=t("Examples:", "Ví dụ:")
                + "\n  python tiktok-dl.py @tiktok\n  python tiktok-dl.py tiktok -n 20 -j 16\n"
                "  python tiktok-dl.py https://www.tiktok.com/@tiktok/video/7704834703446117662\n"
@@ -48,10 +48,10 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument("targets", nargs="*", metavar="profile",
-                   help=t("username, @username, profile link, video link, short link, or Instagram / Facebook "
-                          "reel link (several allowed)",
-                          "username, @username, link profile, link video, link rút gọn, hoặc link reel Instagram / "
-                          "Facebook (có thể nhập nhiều)"))
+                   help=t("username, @username, profile link, video link, short link, Instagram post link or "
+                          "Facebook reel link (several allowed)",
+                          "username, @username, link profile, link video, link rút gọn, link bài Instagram hoặc "
+                          "link reel Facebook (có thể nhập nhiều)"))
     p.add_argument("--site", choices=tuple(BY_NAME),
                    help=t("the site usernames belong to (without it: tiktok); with it, links must be from this site",
                           "username thuộc trang nào (không có thì là tiktok); khi có, link phải thuộc đúng trang này"))
@@ -84,9 +84,13 @@ def main() -> None:
                           "(mặc định: original)"))
     p.add_argument("--no-cover", dest="cover", action="store_false",
                    help=t("do not embed the cover image", "không gắn ảnh bìa vào MP4"))
-    p.add_argument("--no-slideshow", dest="slideshow", action="store_false",
-                   help=t("photo posts: save images + music only, no slideshow video",
-                          "bài ảnh: không dựng video slideshow, chỉ lưu ảnh + nhạc"))
+    # No argparse default either: on for TikTok photo posts, off for Instagram carousels (Site.defaults).
+    p.add_argument("--slideshow", dest="slideshow", action="store_true", default=None,
+                   help=t("Instagram: turn an all-photo carousel into an MP4 slideshow (TikTok does by default)",
+                          "Instagram: dựng video slideshow MP4 cho bài nhiều ảnh (TikTok mặc định đã dựng)"))
+    p.add_argument("--no-slideshow", dest="slideshow", action="store_false", default=None,
+                   help=t("TikTok photo posts: save images + music only, no slideshow video",
+                          "bài ảnh TikTok: không dựng video slideshow, chỉ lưu ảnh + nhạc"))
     p.add_argument("--keep-images", action="store_true",
                    help=t("photo posts: also save each JPG + MP3 next to the slideshow",
                           "bài ảnh: lưu thêm từng ảnh JPG + MP3 cạnh slideshow"))
