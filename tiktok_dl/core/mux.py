@@ -123,7 +123,14 @@ def finalize(post: Download, out_dir: Path, ffmpeg: Optional[str], opts) -> tupl
     produced: list[Path] = []
     note = ""
 
-    if post.is_slide:
+    if post.items:
+        numbered = len(post.items) > 1
+        for i, (item, cover) in enumerate(post.items, 1):
+            dest = out_dir / (f"{post.base}_{i:02d}{item.suffix}" if numbered else f"{post.base}{item.suffix}")
+            shutil.copyfile(item, dest)
+            produced.append(dest)
+        main = produced[0]
+    elif post.is_slide:
         images = [p for p in post.images if p.exists() and p.stat().st_size]
         if not images:
             raise ScrapeError(t("no image could be downloaded", "không tải được ảnh nào"))

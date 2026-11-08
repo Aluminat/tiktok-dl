@@ -242,7 +242,7 @@ def run_profile(site_cls: type[Site], target: str, opts, aria2: Optional[str], f
                     else:
                         truncated = download.download_requests(site.client.s, tasks, opts.jobs) or set()
                     for plan in plans:
-                        plan.incomplete = not plan.is_slide and plan.video in truncated
+                        plan.incomplete = plan.video is not None and plan.video in truncated
                 finally:
                     bar.downloaded()
                 with tally_lock:

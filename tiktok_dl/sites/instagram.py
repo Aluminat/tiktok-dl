@@ -18,7 +18,7 @@ from urllib.parse import urlparse
 from ..core.console import fmt_int, t
 from ..core.errors import RateLimited, ScrapeError
 from ..core.pacing import PageReader
-from ..core.site import Entry, Media, Post, Site, Verdict
+from ..core.site import Entry, Item, Media, Post, Site, Verdict
 from ..core.util import UA, to_int, uniq
 
 # instagram.com with any subdomain (www., m.): profiles, /p/, /reel/, /reels/, /tv/, with or without a query.
@@ -226,11 +226,14 @@ class Instagram(PageReader):
 MEDIA_TYPES = {1: "photo", 2: "video", 8: "carousel"}
 
 
+def _area(version: dict) -> int:
+    return (to_int(version.get("width")) or 0) * (to_int(version.get("height")) or 0)
+
+
 def _largest(versions) -> list[dict]:
     """Versions with a URL, largest first."""
     versions = [v for v in versions or [] if isinstance(v, dict) and v.get("url")]
-    return sorted(versions, key=lambda v: (to_int(v.get("width")) or 0) * (to_int(v.get("height")) or 0),
-                  reverse=True)
+    return sorted(versions, key=_area, reverse=True)
 
 
 def caption_text(item: dict) -> str:
@@ -317,14 +320,23 @@ def mux_tags(item: dict) -> dict:
     }
 
 
+def photo(node: dict) -> Optional[Item]:
+    """A photo at the largest size offered. Smaller sizes are never a fallback."""
+    versions = _largest((node.get("image_versions2") or {}).get("candidates"))
+    if not versions:
+        return None
+    return Item(uniq(v["url"] for v in versions if _area(v) == _area(versions[0])))
+
+
 def media(item: dict) -> Media:
-    """What an Instagram post offers for download: the video versions (largest first) and the cover."""
-    if item.get("media_type") != 2:
-        # Not permanent: photo posts and carousels download once #33 is in.
-        return Media(unavailable=t("Instagram photo posts and carousels are not supported yet (only reels and "
-                                   "video posts)",
-                                   "chưa hỗ trợ tải bài ảnh và bài nhiều ảnh/video của Instagram (chỉ reel và "
-                                   "bài video)"))
+    """What an Instagram post offers for download: the video versions (largest first) and the cover, or
+    the photo."""
+    if item.get("media_type") == 1:
+        single = photo(item)
+        if not single:
+            return Media(unavailable=t("Instagram returned no download link for this photo",
+                                       "Instagram không trả link tải cho ảnh này"))
+        return Media(items=[single])
     videos = uniq(v["url"] for v in _largest(item.get("video_versions")))
     if not videos:
         return Media(unavailable=t("Instagram returned no download link for this video",

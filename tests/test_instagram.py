@@ -379,18 +379,6 @@ def test_link_with_the_username_needs_no_read_on_rerun(tmp_path, server, tools):
     assert server.calls == []
 
 
-def test_photo_posts_and_carousels_are_not_supported_yet(tmp_path, server, tools):
-    for media_type in (1, 8):
-        item = {**copy.deepcopy(ITEM), "media_type": media_type, "product_type": "feed"}
-        item.pop("video_versions")
-        server.answers = [ok(item)]
-        assert run(tmp_path, f"https://www.instagram.com/p/{CODE}/") == 1
-        # An error, not "skipped": these download once photo posts are supported.
-        assert statuses(tmp_path) == {PK: "error"}
-        assert "photo posts and carousels are not supported yet" in (out_dir(tmp_path) / "failed.txt").read_text(
-            encoding="utf-8")
-
-
 def test_unexpected_author_is_not_a_folder(tmp_path, server):
     item = copy.deepcopy(ITEM)
     item["user"]["username"] = ".."
@@ -618,3 +606,63 @@ def test_file_is_the_last_csv_column_for_every_site(tmp_path):
     with open(tmp_path / "videos.csv", encoding="utf-8-sig", newline="") as fh:
         header, values = list(csv.reader(fh))
     assert header == [*row, "file"] and values[-1] == "a.mp4"
+
+
+# --------------------------------------------------------------------------- #
+# Photo posts and carousels (#33)
+# --------------------------------------------------------------------------- #
+
+POST = f"https://www.instagram.com/p/{CODE}/"
+BASE_NAME = f"2023-11-14_{PK}_Sunset beach with @friend.one second line"
+
+
+def photo(name: str, pk: int = 1) -> dict:
+    """A photo as the API lists it: several sizes of the same image, not sorted."""
+    return {"pk": pk, "media_type": 1, "image_versions2": {"candidates": [
+        {"width": 640, "height": 800, "url": f"https://cdn.example/{name}_640.jpg"},
+        {"width": 1440, "height": 1800, "url": f"https://cdn.example/{name}_1440.jpg"},
+        {"width": 150, "height": 150, "url": f"https://cdn.example/{name}_150.jpg"},
+    ]}}
+
+
+def video(name: str, pk: int = 2) -> dict:
+    """A video item of a carousel: its versions and its cover."""
+    return {"pk": pk, "media_type": 2, "video_duration": 7.5,
+            "video_versions": [{"width": 480, "height": 600, "url": f"https://cdn.example/{name}_480.mp4"},
+                               {"width": 1080, "height": 1350, "url": f"https://cdn.example/{name}_1080.mp4"}],
+            "image_versions2": {"candidates": [
+                {"width": 1080, "height": 1350, "url": f"https://cdn.example/{name}_cover.jpg"}]}}
+
+
+def post_item(media_type: int, **fields) -> dict:
+    """A feed post: ITEM without the reel's fields."""
+    item = {key: value for key, value in copy.deepcopy(ITEM).items()
+            if key not in ("video_versions", "image_versions2", "clips_metadata", "video_duration", "play_count",
+                           "has_audio")}
+    return {**item, "media_type": media_type, "product_type": "feed", **fields}
+
+
+SINGLE_PHOTO = post_item(1, image_versions2=photo("single")["image_versions2"])
+
+
+def downloaded(tmp_path) -> list[str]:
+    """Files in the author's folder, metadata and work files left out."""
+    return sorted(p.name for p in out_dir(tmp_path).iterdir()
+                  if p.is_file() and p.suffix in (".jpg", ".mp4"))
+
+
+def csv_rows(tmp_path) -> list[dict]:
+    with open(out_dir(tmp_path) / "videos.csv", encoding="utf-8-sig", newline="") as fh:
+        return list(csv.DictReader(fh))
+
+
+def test_single_photo_is_saved_at_the_largest_size(tmp_path, server, tools):
+    server.answers = [ok(SINGLE_PHOTO)]
+    assert run(tmp_path, POST) == 0
+    assert downloaded(tmp_path) == [f"{BASE_NAME}.jpg"]
+    # Only the largest size is asked for: a smaller one is never a fallback.
+    urls = [line for call in tools.aria2 for line in call.input.splitlines() if not line.startswith("  ")]
+    assert urls == ["https://cdn.example/single_1440.jpg"]
+    assert statuses(tmp_path) == {PK: "done"}
+    row = csv_rows(tmp_path)[0]
+    assert (row["type"], row["file"], row["url"]) == ("photo", f"{BASE_NAME}.jpg", POST)

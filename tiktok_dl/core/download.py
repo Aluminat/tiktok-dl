@@ -36,9 +36,22 @@ class Download:
         self.hidden: Optional[str] = None    # reason when the site gives no download link
         self.permanent = False               # True when no re-run can ever download it
         self.incomplete = False              # every video download came out truncated
+        self.video: Optional[Path] = None    # the post's video (a video post only)
         media = post.media()
         self.is_slide = bool(media.images)
         self.url = post.link
+        # A post saved item by item (Media.items): (item file, its cover or None) per item, in order.
+        self.items: list[tuple[Path, Optional[Path]]] = []
+
+        if media.items:
+            for i, item in enumerate(media.items, 1):
+                dest = self.work / f"item_{i:02d}{'.mp4' if item.video else '.jpg'}"
+                self.tasks.append((item.urls, dest, {}))
+                cover = self.work / f"item_{i:02d}_cover.img" if item.video and item.cover and opts.cover else None
+                if cover:
+                    self.tasks.append(([item.cover], cover, {}))
+                self.items.append((dest, cover))
+            return
 
         if self.is_slide:
             self.images = [self.work / f"img_{i:02d}.jpg" for i in range(1, len(media.images) + 1)]
