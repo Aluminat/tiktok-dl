@@ -51,5 +51,5 @@ def load(path: str) -> list[Cookie]:
 
 
 def for_domain(jar: list[Cookie], domain: str) -> list[Cookie]:
-    """The cookies of `domain` and its subdomains (never of a look-alike such as notfacebook.com)."""
+    """The cookies of `domain` and its subdomains (never of a look-alike such as "not" + domain)."""
     return [c for c in jar if c.domain.lstrip(".").lower() == domain or c.domain.lower().endswith("." + domain)]
