@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from typing import Optional
 from urllib.parse import urlparse
 
+from ..core import cookies
 from ..core.console import fmt_int, t
 from ..core.errors import RateLimited, ScrapeError
 from ..core.pacing import PageReader
@@ -392,7 +393,13 @@ class InstagramSite(Site):
 
     @classmethod
     def session(cls, opts) -> Optional[str]:
-        return getattr(opts, "ig_session_id", None)
+        """--ig-session-id / INSTAGRAM_SESSIONID, else the instagram.com "sessionid" of the --cookies file
+        (read in memory, issue #34)."""
+        cookie_file = getattr(opts, "cookies", None)
+        if getattr(opts, "ig_session_id", None) or not cookie_file:
+            return getattr(opts, "ig_session_id", None)
+        jar = cookies.for_domain(cookies.load(cookie_file), "instagram.com")
+        return next((c.value for c in jar if c.name == "sessionid" and c.value), None)
 
     @staticmethod
     def parse(target: str) -> tuple[Optional[str], Optional[Entry]]:
