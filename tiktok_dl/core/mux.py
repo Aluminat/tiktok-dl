@@ -8,6 +8,7 @@ import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
+from . import download
 from .console import t
 from .errors import ScrapeError
 from .records import FILE_SEP
@@ -212,7 +213,7 @@ def finalize(post: Download, out_dir: Path, ffmpeg: Optional[str], opts) -> tupl
                                     "(đã thử hết các link tải)"))
             raise ScrapeError(t("video could not be downloaded", "không tải được video"))
         audio = getattr(post, "audio", None)
-        if audio and (not audio.exists() or audio.stat().st_size < 64):
+        if audio and (not audio.exists() or audio.stat().st_size < download.MIN_FILE_BYTES):
             raise ScrapeError(t("audio could not be downloaded", "không tải được âm thanh"))
         main = out_dir / f"{post.base}.mp4"
         if ffmpeg:

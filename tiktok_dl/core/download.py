@@ -99,11 +99,15 @@ class Download:
         return self.site.mux_tags(self.post)
 
 
+# A smaller "finished" download is an error answer, not the file (no real video, photo or sound is this small).
+MIN_FILE_BYTES = 64
+
+
 def is_valid_file(dest: Path, expected: int = 0) -> bool:
     """Reject "finished" downloads that are really HTML/JSON error pages, or that are smaller than
     the size the site reports for them (expected, 0 = unknown)."""
     try:
-        if not dest.is_file() or dest.stat().st_size < max(64, expected) or Path(f"{dest}.aria2").exists():
+        if not dest.is_file() or dest.stat().st_size < max(MIN_FILE_BYTES, expected) or Path(f"{dest}.aria2").exists():
             return False
         with open(dest, "rb") as fh:
             head = fh.read(16)
