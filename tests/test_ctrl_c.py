@@ -241,7 +241,7 @@ def test_mux_video_skips_fallbacks_when_ffmpeg_was_stopped(monkeypatch, tmp_path
     cover = tmp_path / "cover.img"
     cover.write_bytes(b"x" * 10)
     post = SimpleNamespace(tags=tiktok.mux_tags({"id": "1", "author": {"uniqueId": "u"}}), subs=[], cover=cover,
-                           video=tmp_path / "video.mp4")
+                           video=tmp_path / "video.mp4", audio=None)
     with pytest.raises(ScrapeError):
         mux.mux_video("ffmpeg", post, tmp_path / "out.mp4")
     assert len(runs) == 1   # no "cover skipped" retry that could be recorded as done
@@ -328,7 +328,7 @@ def test_mux_video_skips_fallbacks_when_ffmpeg_exits_before_stop_is_set(monkeypa
     cover = tmp_path / "cover.img"
     cover.write_bytes(b"x" * 10)
     post = SimpleNamespace(tags=tiktok.mux_tags({"id": "1", "author": {"uniqueId": "u"}}), subs=[], cover=cover,
-                           video=tmp_path / "video.mp4")
+                           video=tmp_path / "video.mp4", audio=None)
     with pytest.raises(ScrapeError):
         mux.mux_video("ffmpeg", post, tmp_path / "out.mp4")
     assert len(runs) == 1   # no "cover skipped" retry that could be recorded as done
@@ -344,7 +344,7 @@ def test_mux_video_still_falls_back_on_a_real_ffmpeg_error(monkeypatch, tmp_path
     cover = tmp_path / "cover.img"
     cover.write_bytes(b"x" * 10)
     post = SimpleNamespace(tags=tiktok.mux_tags({"id": "1", "author": {"uniqueId": "u"}}), subs=[], cover=cover,
-                           video=tmp_path / "video.mp4")
+                           video=tmp_path / "video.mp4", audio=None)
     t0 = time.monotonic()
     assert mux.mux_video("ffmpeg", post, tmp_path / "out.mp4") == console.t("cover skipped", "bỏ ảnh bìa")
     assert time.monotonic() - t0 < 0.5   # no wait for STOP on an ordinary error

@@ -1,7 +1,9 @@
-"""Instagram: single reel / video post links (issue #32), read logged in with the user's sessionid cookie.
+"""Instagram: single post links (reels and video posts #32, photo posts and carousels #33), read logged in
+with the user's sessionid cookie.
 
 Everything specific to Instagram lives here: its URLs, the API answer keys and its stop answers.
-Photo posts and carousels come in #33, whole profiles in v2.
+Whole profiles come in v2. A photo post and a carousel are saved as their original files, item by item
+(core Media.items, docs/adr/0004).
 
 A post is read with the same request Instagram's website makes (and yt-dlp's Instagram extractor):
 GET /api/v1/media/<media id>/info/, where the media id is the link's shortcode read as a base-64
@@ -15,10 +17,11 @@ from datetime import datetime, timezone
 from typing import Optional
 from urllib.parse import urlparse
 
+from ..core import cookies
 from ..core.console import fmt_int, t
 from ..core.errors import RateLimited, ScrapeError
 from ..core.pacing import PageReader
-from ..core.site import Entry, Media, Post, Site, Verdict
+from ..core.site import Entry, Item, Media, Post, Site, Verdict
 from ..core.util import UA, to_int, uniq
 
 # instagram.com with any subdomain (www., m.): profiles, /p/, /reel/, /reels/, /tv/, with or without a query.
@@ -226,11 +229,15 @@ class Instagram(PageReader):
 MEDIA_TYPES = {1: "photo", 2: "video", 8: "carousel"}
 
 
+def _pixels(version: dict) -> int:
+    """A version's size in pixels (width x height; 0 when unknown)."""
+    return (to_int(version.get("width")) or 0) * (to_int(version.get("height")) or 0)
+
+
 def _largest(versions) -> list[dict]:
     """Versions with a URL, largest first."""
     versions = [v for v in versions or [] if isinstance(v, dict) and v.get("url")]
-    return sorted(versions, key=lambda v: (to_int(v.get("width")) or 0) * (to_int(v.get("height")) or 0),
-                  reverse=True)
+    return sorted(versions, key=_pixels, reverse=True)
 
 
 def caption_text(item: dict) -> str:
@@ -317,14 +324,43 @@ def mux_tags(item: dict) -> dict:
     }
 
 
+def photo(node: dict) -> Optional[Item]:
+    """A photo at the largest size offered. Smaller sizes are never a fallback."""
+    versions = _largest((node.get("image_versions2") or {}).get("candidates"))
+    if not versions:
+        return None
+    return Item(uniq(v["url"] for v in versions if _pixels(v) == _pixels(versions[0])))
+
+
+def carousel_item(node: dict) -> Optional[Item]:
+    """One item of a carousel: a photo, or a video (its versions, largest first, and its cover)."""
+    if node.get("media_type") != 2:
+        return photo(node)
+    videos = uniq(v["url"] for v in _largest(node.get("video_versions")))
+    cover = photo(node)
+    return Item(videos, video=True, cover=cover.urls[0] if cover else None) if videos else None
+
+
 def media(item: dict) -> Media:
-    """What an Instagram post offers for download: the video versions (largest first) and the cover."""
-    if item.get("media_type") != 2:
-        # Not permanent: photo posts and carousels download once #33 is in.
-        return Media(unavailable=t("Instagram photo posts and carousels are not supported yet (only reels and "
-                                   "video posts)",
-                                   "chưa hỗ trợ tải bài ảnh và bài nhiều ảnh/video của Instagram (chỉ reel và "
-                                   "bài video)"))
+    """What an Instagram post offers for download: the video versions (largest first) and the cover, or
+    the photo."""
+    if item.get("media_type") == 1:
+        single = photo(item)
+        if not single:
+            return Media(unavailable=t("Instagram returned no download link for this photo",
+                                       "Instagram không trả link tải cho ảnh này"))
+        return Media(items=[single])
+    if item.get("media_type") == 8:
+        nodes = [node for node in item.get("carousel_media") or [] if isinstance(node, dict)]
+        items = [carousel_item(node) for node in nodes]
+        if not items:
+            return Media(unavailable=t("Instagram returned no items for this carousel",
+                                       "Instagram không trả mục nào cho bài nhiều ảnh/video này"))
+        if None in items:
+            missing = ", ".join(str(i) for i, got in enumerate(items, 1) if got is None)
+            return Media(unavailable=t(f"Instagram returned no download link for carousel item {missing}",
+                                       f"Instagram không trả link tải cho mục {missing} của bài nhiều ảnh/video"))
+        return Media(items=items)
     videos = uniq(v["url"] for v in _largest(item.get("video_versions")))
     if not videos:
         return Media(unavailable=t("Instagram returned no download link for this video",
@@ -370,14 +406,15 @@ class InstagramPost(Post):
 # --------------------------------------------------------------------------- #
 
 class InstagramSite(Site):
-    """Instagram behind the core's site interface: single reel / video post links, logged in. A plain
+    """Instagram behind the core's site interface: single post links, logged in. A plain
     class, not a dataclass: it holds the session cookie, which must never show up in a repr."""
 
     name = "instagram"
     label = "Instagram"
     referer = f"{BASE}/"
-    # Unmeasured: slow on purpose, as Meta bans accounts that scrape. The flags override them.
-    defaults = {"wait": 3.0, "workers": 1, "connections": 4}
+    # Unmeasured, so slow (see Site.defaults). No slideshow unless asked for (--slideshow): the original
+    # files are what a carousel is.
+    defaults = {**Site.defaults, "wait": 3.0, "workers": 1, "slideshow": False}
 
     def __init__(self, profile: Optional[str], session_id: Optional[str], wait: float, proxy: Optional[str]):
         if not session_id:
@@ -392,19 +429,25 @@ class InstagramSite(Site):
 
     @classmethod
     def session(cls, opts) -> Optional[str]:
-        return getattr(opts, "ig_session_id", None)
+        """--ig-session-id / INSTAGRAM_SESSIONID, else the instagram.com "sessionid" of the --cookies file
+        (read in memory, issue #34)."""
+        cookie_file = getattr(opts, "cookies", None)
+        if getattr(opts, "ig_session_id", None) or not cookie_file:
+            return getattr(opts, "ig_session_id", None)
+        jar = cookies.for_site(cookie_file, "instagram.com")
+        return next((c.value for c in jar if c.name == "sessionid" and c.value), None)
 
     @staticmethod
     def parse(target: str) -> tuple[Optional[str], Optional[Entry]]:
-        """A reel / post link -> (the username in the link or None, the post). Profiles fail: they come
-        in v2. Makes no request."""
+        """A post link (reel, video, photo or carousel) -> (the username in the link or None, the post).
+        A profile link fails: profiles come in v2. Makes no request."""
         text = target.strip()
         m = POST_LINK_RE.match(text)
         if not m:
-            raise ScrapeError(t(f"Instagram profiles are not supported yet, only links to a reel or video post "
-                                f"(instagram.com/reel/...): {text}",
-                                f"chưa hỗ trợ tải cả profile Instagram, chỉ link reel hoặc bài video "
-                                f"(instagram.com/reel/...): {text}"))
+            raise ScrapeError(t(f"Instagram profiles are not supported yet, only links to a single post "
+                                f"(instagram.com/reel/... or /p/...): {text}",
+                                f"chưa hỗ trợ tải cả profile Instagram, chỉ link từng bài "
+                                f"(instagram.com/reel/... hoặc /p/...): {text}"))
         user, kind, code = m.group(1), m.group(2).lower(), m.group(3)
         if any(ch not in ALPHABET for ch in code) or (user and not USERNAME_RE.fullmatch(user)):
             raise ScrapeError(t(f"not a valid Instagram post link: {text}", f"link bài Instagram không hợp lệ: {text}"))

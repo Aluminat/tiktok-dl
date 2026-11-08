@@ -45,13 +45,14 @@ The app is the **`tiktok_dl/`** package; `tiktok-dl.py` only launches it. The do
 | `core/console.py` | `t()`, colours, `log()`, `status()` and the progress bar |
 | `core/site.py` | The site interface: `Site` (also its output folder), `Post`, `Verdict` |
 | `core/pacing.py` | Page reads: `--wait` gap, backoff on rate limits, streak stops |
+| `core/cookies.py` | `--cookies`: reads a Netscape cookie file in memory (never written) and gives each site only its own domain's cookies |
 | `core/download.py` | `Download` (which files a post needs), aria2c / requests downloads |
 | `core/mux.py` | ffmpeg muxing and photo slideshows |
 | `core/records.py` | Progress database, `videos.csv`, `failed.txt` |
 | `core/flow.py` | Main loop: read → download → mux, in overlapping batches |
 | `sites/tiktok.py` | Everything TikTok: page reads, post list (yt-dlp), CSV row, MP4 tags |
-| `sites/instagram.py` | Instagram reels and video posts: API reads (logged in), stop rules, CSV row, MP4 tags |
-| `sites/facebook.py` | Only recognises its links for now ("not supported yet") |
+| `sites/instagram.py` | Instagram posts (reels, videos, photos, carousels saved item by item): API reads (logged in), stop rules, CSV row, MP4 tags |
+| `sites/facebook.py` | Facebook reels: yt-dlp extraction (information only, `--cookies` optional), login-wall and rate-limit rules, CSV row, MP4 tags |
 
 ## Rules for changes
 
@@ -63,8 +64,10 @@ The app is the **`tiktok_dl/`** package; `tiktok-dl.py` only launches it. The do
   `tiktok_dl/sites/<site>.py`; the core reaches a site only through `core/site.py`. Don't add
   code to the launcher `tiktok-dl.py`. The version is `__version__` in `tiktok_dl/__init__.py`
   and nowhere else (`pyproject.toml` reads it). See
-  [docs/adr/0002](docs/adr/0002-package-with-shared-core-and-site-modules.md) and
-  [docs/adr/0003](docs/adr/0003-what-a-second-site-adds-to-the-site-interface.md).
+  [docs/adr/0002](docs/adr/0002-package-with-shared-core-and-site-modules.md),
+  [docs/adr/0003](docs/adr/0003-what-a-second-site-adds-to-the-site-interface.md),
+  [docs/adr/0004](docs/adr/0004-posts-saved-item-by-item.md) and
+  [docs/adr/0005](docs/adr/0005-facebook-reels-through-yt-dlp-extraction.md).
 - **Call helpers through their module.** Use `console.log(...)`, `console.status(...)`,
   `download.download_requests(...)` and the like instead of `from ... import log`, so tests can
   replace them (`tests/test_layout.py` checks this).
