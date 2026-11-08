@@ -41,8 +41,8 @@ from .stop import STOP, wait_result
 
 
 def run_settings(site_cls: type[Site], opts):
-    """A copy of opts for one run of this site: --wait, --workers and --connections the user left out
-    (None) take the site's defaults (Site.defaults), then are kept in range. A copy, because one opts
+    """A copy of opts for one run of this site: --wait, --workers, --connections and --slideshow the user
+    left out (None) take the site's defaults (Site.defaults), then are kept in range. A copy, because one opts
     serves every target of the command line, and they may be on different sites."""
     run = copy.copy(opts)
     for key, value in site_cls.defaults.items():
@@ -170,7 +170,9 @@ def run_profile(site_cls: type[Site], target: str, opts, aria2: Optional[str], f
         progress.mark(plan.id, "done", file=name)
         kind = magenta("[slideshow] ") if plan.is_slide else ""
         extra = f"  {yellow('(' + note + ')')}" if note else ""
-        succeed(f"{kind}{name}  {gray(fmt_bytes(size))}{extra}", size)
+        first, *more = name.split(records.FILE_SEP)   # a post saved item by item lists all its files
+        more_files = gray(t(f" +{len(more)} files", f" +{len(more)} file")) if more else ""
+        succeed(f"{kind}{first}{more_files}  {gray(fmt_bytes(size))}{extra}", size)
 
     # The 3 steps overlap: while aria2c downloads the current batch, the next batch's metadata is
     # read and finished batches are muxed by ffmpeg in the background. Only one batch is read
@@ -242,7 +244,7 @@ def run_profile(site_cls: type[Site], target: str, opts, aria2: Optional[str], f
                     else:
                         truncated = download.download_requests(site.client.s, tasks, opts.jobs) or set()
                     for plan in plans:
-                        plan.incomplete = not plan.is_slide and plan.video in truncated
+                        plan.incomplete = plan.video is not None and plan.video in truncated
                 finally:
                     bar.downloaded()
                 with tally_lock:

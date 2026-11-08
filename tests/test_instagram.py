@@ -106,15 +106,17 @@ def make_opts(tmp_path, **overrides) -> SimpleNamespace:
     opts = SimpleNamespace(output=str(tmp_path), session_id=None, ig_session_id=SECRET, wait=0, proxy=None,
                            limit=None, metadata_only=False, workers=None, batch=10, mux_jobs=1, keep_parts=False,
                            jobs=1, connections=None, cover=True, subs="original", retry_all=False,
-                           slideshow=True, keep_images=False, slide_seconds=3.0)
+                           slideshow=None, keep_images=False, slide_seconds=3.0)
     for key, value in overrides.items():
         setattr(opts, key, value)
     return opts
 
 
 class FakeAria2:
-    """aria2c: records argv and stdin, and "downloads" each URL to its dir/out."""
+    """aria2c: records argv and stdin, and "downloads" each URL to its dir/out. A URL in `broken` comes
+    down as an error page ("html") or cut short, with aria2c's control file left behind ("cut")."""
     calls: list[SimpleNamespace] = []
+    broken: dict[str, str] = {}
 
     def __init__(self, args, stdin=None, stdout=None, stderr=None):
         self.args = args
@@ -132,7 +134,11 @@ class FakeAria2:
                     folder = Path(line[6:])
                 elif line.startswith("  out="):
                     body = b"\x00\x00\x00\x18ftypmp42" if url.endswith(".mp4") else b"\xff\xd8\xff\xe0"
+                    if FakeAria2.broken.get(url) == "html":
+                        body = b"<!DOCTYPE html><html>URL signature expired</html>"
                     (folder / line[6:]).write_bytes(body + b"\x00" * 4096)
+                    if FakeAria2.broken.get(url) == "cut":
+                        (folder / f"{line[6:]}.aria2").write_bytes(b"\x00" * 64)
         return None, None
 
     def terminate(self):
@@ -143,6 +149,7 @@ class FakeAria2:
 def tools(monkeypatch):
     """Fake aria2c (download.subprocess.Popen) and ffmpeg (mux.run_ffmpeg): ffmpeg writes its output."""
     FakeAria2.calls = []
+    FakeAria2.broken = {}
     ffmpeg_calls: list[list[str]] = []
     monkeypatch.setattr(download.subprocess, "Popen", FakeAria2)
 
@@ -379,18 +386,6 @@ def test_link_with_the_username_needs_no_read_on_rerun(tmp_path, server, tools):
     assert server.calls == []
 
 
-def test_photo_posts_and_carousels_are_not_supported_yet(tmp_path, server, tools):
-    for media_type in (1, 8):
-        item = {**copy.deepcopy(ITEM), "media_type": media_type, "product_type": "feed"}
-        item.pop("video_versions")
-        server.answers = [ok(item)]
-        assert run(tmp_path, f"https://www.instagram.com/p/{CODE}/") == 1
-        # An error, not "skipped": these download once photo posts are supported.
-        assert statuses(tmp_path) == {PK: "error"}
-        assert "photo posts and carousels are not supported yet" in (out_dir(tmp_path) / "failed.txt").read_text(
-            encoding="utf-8")
-
-
 def test_unexpected_author_is_not_a_folder(tmp_path, server):
     item = copy.deepcopy(ITEM)
     item["user"]["username"] = ".."
@@ -578,6 +573,24 @@ def test_the_run_uses_the_instagram_defaults(tmp_path, server, monkeypatch):
     assert seen == [3.0]
 
 
+def test_slideshow_is_on_for_tiktok_and_off_for_instagram():
+    unset = SimpleNamespace(wait=None, workers=None, connections=None, slideshow=None)
+    assert flow.run_settings(tiktok.TikTokSite, unset).slideshow is True
+    assert flow.run_settings(instagram.InstagramSite, unset).slideshow is False
+    for flag in (True, False):
+        given = SimpleNamespace(wait=None, workers=None, connections=None, slideshow=flag)
+        assert flow.run_settings(tiktok.TikTokSite, given).slideshow is flag
+        assert flow.run_settings(instagram.InstagramSite, given).slideshow is flag
+
+
+@pytest.mark.parametrize(("flags", "slideshow"), [((), None), (("--slideshow",), True), (("--no-slideshow",), False)])
+def test_cli_leaves_the_slideshow_to_the_site(run_main, monkeypatch, flags, slideshow):
+    got = []
+    monkeypatch.setattr(cli, "scrape_profile", lambda target, opts, *a: got.append(opts) or 0)
+    assert run_main("@some.user", *flags) == 0
+    assert got[0].slideshow is slideshow
+
+
 def test_cli_leaves_the_pacing_flags_unset(run_main, monkeypatch):
     got = []
     monkeypatch.setattr(cli, "scrape_profile", lambda target, opts, *a: got.append(opts) or 0)
@@ -618,3 +631,176 @@ def test_file_is_the_last_csv_column_for_every_site(tmp_path):
     with open(tmp_path / "videos.csv", encoding="utf-8-sig", newline="") as fh:
         header, values = list(csv.reader(fh))
     assert header == [*row, "file"] and values[-1] == "a.mp4"
+
+
+# --------------------------------------------------------------------------- #
+# Photo posts and carousels (#33)
+# --------------------------------------------------------------------------- #
+
+POST = f"https://www.instagram.com/p/{CODE}/"
+BASE_NAME = f"2023-11-14_{PK}_Sunset beach with @friend.one second line"
+
+
+def photo(name: str, pk: int = 1) -> dict:
+    """A photo as the API lists it: several sizes of the same image, not sorted."""
+    return {"pk": pk, "media_type": 1, "image_versions2": {"candidates": [
+        {"width": 640, "height": 800, "url": f"https://cdn.example/{name}_640.jpg"},
+        {"width": 1440, "height": 1800, "url": f"https://cdn.example/{name}_1440.jpg"},
+        {"width": 150, "height": 150, "url": f"https://cdn.example/{name}_150.jpg"},
+    ]}}
+
+
+def video(name: str, pk: int = 2) -> dict:
+    """A video item of a carousel: its versions and its cover."""
+    return {"pk": pk, "media_type": 2, "video_duration": 7.5,
+            "video_versions": [{"width": 480, "height": 600, "url": f"https://cdn.example/{name}_480.mp4"},
+                               {"width": 1080, "height": 1350, "url": f"https://cdn.example/{name}_1080.mp4"}],
+            "image_versions2": {"candidates": [
+                {"width": 1080, "height": 1350, "url": f"https://cdn.example/{name}_cover.jpg"}]}}
+
+
+def post_item(media_type: int, **fields) -> dict:
+    """A feed post: ITEM without the reel's fields."""
+    item = {key: value for key, value in copy.deepcopy(ITEM).items()
+            if key not in ("video_versions", "image_versions2", "clips_metadata", "video_duration", "play_count",
+                           "has_audio")}
+    return {**item, "media_type": media_type, "product_type": "feed", **fields}
+
+
+SINGLE_PHOTO = post_item(1, image_versions2=photo("single")["image_versions2"])
+
+
+def downloaded(tmp_path) -> list[str]:
+    """Files in the author's folder, metadata and work files left out."""
+    return sorted(p.name for p in out_dir(tmp_path).iterdir()
+                  if p.is_file() and p.suffix in (".jpg", ".mp4"))
+
+
+def csv_rows(tmp_path) -> list[dict]:
+    with open(out_dir(tmp_path) / "videos.csv", encoding="utf-8-sig", newline="") as fh:
+        return list(csv.DictReader(fh))
+
+
+def aria2_urls(tools) -> list[str]:
+    """Every URL handed to aria2c, in order."""
+    return [line for call in tools.aria2 for line in call.input.splitlines() if not line.startswith("  ")]
+
+
+def test_single_photo_is_saved_at_the_largest_size(tmp_path, server, tools):
+    server.answers = [ok(SINGLE_PHOTO)]
+    assert run(tmp_path, POST) == 0
+    assert downloaded(tmp_path) == [f"{BASE_NAME}.jpg"]
+    # Only the largest size is asked for: a smaller one is never a fallback.
+    assert aria2_urls(tools) == ["https://cdn.example/single_1440.jpg"]
+    assert statuses(tmp_path) == {PK: "done"}
+    row = csv_rows(tmp_path)[0]
+    assert (row["type"], row["file"], row["url"]) == ("photo", f"{BASE_NAME}.jpg", POST)
+
+
+ALL_PHOTOS = post_item(8, carousel_media_count=3, carousel_media=[photo("a", 11), photo("b", 12), photo("c", 13)])
+MIXED = post_item(8, carousel_media_count=3, carousel_media=[photo("a", 11), video("b", 12), photo("c", 13)])
+
+
+def test_all_photo_carousel_is_saved_item_by_item(tmp_path, server, tools):
+    server.answers = [ok(ALL_PHOTOS)]
+    assert run(tmp_path, POST) == 0
+    names = [f"{BASE_NAME}_01.jpg", f"{BASE_NAME}_02.jpg", f"{BASE_NAME}_03.jpg"]
+    assert downloaded(tmp_path) == names
+    assert aria2_urls(tools) == ["https://cdn.example/a_1440.jpg", "https://cdn.example/b_1440.jpg",
+                                 "https://cdn.example/c_1440.jpg"]
+    assert tools.ffmpeg == []   # originals: no slideshow without --slideshow
+    row = csv_rows(tmp_path)[0]
+    assert (row["type"], row["file"]) == ("carousel", " | ".join(names))
+
+
+def test_mixed_carousel_keeps_the_order_and_tags_its_videos(tmp_path, server, tools):
+    server.answers = [ok(MIXED)]
+    assert run(tmp_path, POST) == 0
+    names = [f"{BASE_NAME}_01.jpg", f"{BASE_NAME}_02.mp4", f"{BASE_NAME}_03.jpg"]
+    assert downloaded(tmp_path) == names
+    # The video item: its largest version and its cover, in the item's place.
+    assert aria2_urls(tools) == ["https://cdn.example/a_1440.jpg", "https://cdn.example/b_1080.mp4",
+                                 "https://cdn.example/b_cover.jpg", "https://cdn.example/c_1440.jpg"]
+    # The video is muxed with the post's tags and its cover, like a reel.
+    [cmd] = tools.ffmpeg
+    assert any(arg.endswith("item_02.mp4") for arg in cmd)
+    assert any(arg.endswith("item_02_cover.img") for arg in cmd)
+    for tag in ("album=Instagram @some.user", "genre=Instagram", f"episode_id={CODE}", "date=2023-11-14"):
+        assert tag in cmd
+    assert (out_dir(tmp_path) / names[1]).read_bytes()[4:8] == b"ftyp"
+    assert statuses(tmp_path) == {PK: "done"}
+    row = csv_rows(tmp_path)[0]
+    assert (row["type"], row["file"]) == ("carousel", " | ".join(names))
+
+    # Every file on disk: a re-run skips the post.
+    tools.aria2.clear()
+    server.answers = [ok(MIXED)]
+    assert run(tmp_path, POST) == 0
+    assert tools.aria2 == []
+
+    # One file gone: the post is not done any more and is downloaded again.
+    (out_dir(tmp_path) / names[2]).unlink()
+    server.answers = [ok(MIXED)]
+    assert run(tmp_path, POST) == 0
+    assert tools.aria2 != [] and downloaded(tmp_path) == names
+
+
+@pytest.mark.parametrize("how", ["html", "cut"])
+def test_a_missing_item_leaves_the_post_unfinished_and_only_it_is_downloaded_again(tmp_path, server, tools, how):
+    # Every version of the video item (a video falls back to a smaller version, as a reel does).
+    FakeAria2.broken = {"https://cdn.example/b_1080.mp4": how, "https://cdn.example/b_480.mp4": how}
+    server.answers = [ok(MIXED)]
+    assert run(tmp_path, POST) == 1
+    assert statuses(tmp_path) == {PK: "error"}
+    assert downloaded(tmp_path) == []   # nothing half done in the author's folder
+    assert "item 2 of 3" in (out_dir(tmp_path) / "failed.txt").read_text(encoding="utf-8")
+
+    # The next run asks only for the missing item: the others wait in the work folder.
+    FakeAria2.broken = {}
+    tools.aria2.clear()
+    server.answers = [ok(MIXED)]
+    assert run(tmp_path, POST) == 0
+    assert aria2_urls(tools) == ["https://cdn.example/b_1080.mp4"]
+    assert statuses(tmp_path) == {PK: "done"}
+    assert downloaded(tmp_path) == [f"{BASE_NAME}_01.jpg", f"{BASE_NAME}_02.mp4", f"{BASE_NAME}_03.jpg"]
+    assert not (out_dir(tmp_path) / ".parts").exists() and not (out_dir(tmp_path) / "failed.txt").exists()
+
+
+def slideshow_runs(tools) -> list[list[str]]:
+    return [cmd for cmd in tools.ffmpeg if "-loop" in cmd]
+
+
+def test_slideshow_flag_builds_an_mp4_of_an_all_photo_carousel(tmp_path, server, tools):
+    server.answers = [ok(ALL_PHOTOS)]
+    assert run(tmp_path, POST, slideshow=True) == 0
+    [cmd] = slideshow_runs(tools)
+    assert sum(arg.endswith(".jpg") for arg in cmd) == 3 and "genre=Instagram" in cmd
+    assert downloaded(tmp_path) == [f"{BASE_NAME}.mp4"]
+    assert csv_rows(tmp_path)[0]["file"] == f"{BASE_NAME}.mp4"
+
+
+def test_slideshow_with_keep_images_keeps_the_originals_too(tmp_path, server, tools):
+    server.answers = [ok(ALL_PHOTOS)]
+    assert run(tmp_path, POST, slideshow=True, keep_images=True) == 0
+    names = [f"{BASE_NAME}.mp4", f"{BASE_NAME}_01.jpg", f"{BASE_NAME}_02.jpg", f"{BASE_NAME}_03.jpg"]
+    assert downloaded(tmp_path) == names
+    assert csv_rows(tmp_path)[0]["file"] == " | ".join(names)
+
+
+@pytest.mark.parametrize("item", [MIXED, SINGLE_PHOTO], ids=["mixed carousel", "single photo"])
+def test_slideshow_flag_leaves_other_posts_as_originals(tmp_path, server, tools, item):
+    server.answers = [ok(item)]
+    assert run(tmp_path, POST, slideshow=True) == 0
+    assert slideshow_runs(tools) == []
+    assert f"{BASE_NAME}.mp4" not in downloaded(tmp_path)
+    assert len(downloaded(tmp_path)) == (3 if item is MIXED else 1)
+
+
+def test_a_carousel_item_without_a_link_fails_the_post_for_now(tmp_path, server, tools):
+    broken = copy.deepcopy(MIXED)
+    broken["carousel_media"][1].pop("video_versions")
+    server.answers = [ok(broken)]
+    assert run(tmp_path, POST) == 1
+    assert tools.aria2 == [] and downloaded(tmp_path) == []
+    assert statuses(tmp_path) == {PK: "error"}   # not "skipped": a later run may get the link
+    assert "no download link for carousel item 2" in (out_dir(tmp_path) / "failed.txt").read_text(encoding="utf-8")

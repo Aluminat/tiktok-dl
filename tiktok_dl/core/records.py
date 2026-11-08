@@ -11,6 +11,10 @@ from typing import Callable, Optional
 
 from .console import t
 
+# Separates the files of a post saved as several files in the "file" column (progress DB and videos.csv).
+# File names never contain "|" (util.sanitize removes it).
+FILE_SEP = " | "
+
 
 class Progress:
     def __init__(self, path: Path):
@@ -25,7 +29,8 @@ class Progress:
 
     def done(self, post_id: str, folder: Path) -> bool:
         row = self.db.execute("SELECT status, file FROM posts WHERE id = ?", (post_id,)).fetchone()
-        return bool(row and row[0] == "done" and row[1] and (folder / row[1]).exists())
+        return bool(row and row[0] == "done" and row[1]
+                    and all((folder / name).exists() for name in row[1].split(FILE_SEP)))
 
     def mark(self, post_id: str, state: str, file: Optional[str] = None, error: Optional[str] = None,
              url: Optional[str] = None) -> None:
