@@ -42,6 +42,10 @@ The app is the **`tiktok_dl/`** package; `tiktok-dl.py` only launches it. The do
 |---|---|
 | `cli.py` | Arguments and `main()`; `scrape_profile()` picks the site for a target |
 | `sites/__init__.py` | `SITES` and `find_site()`: the site of a link, or `--site` for a username |
+| `core/errors.py` | `ScrapeError`, the error shared by the core and the sites |
+| `core/stop.py` | Ctrl+C handling shared by every thread |
+| `core/tools.py` | Finding aria2c and ffmpeg |
+| `core/util.py` | Small helpers: browser User-Agent, file-name cleanup, lenient conversions |
 | `core/console.py` | `t()`, colours, `log()`, `status()` and the progress bar |
 | `core/site.py` | The site interface: `Site` (also its output folder), `Post`, `Verdict` |
 | `core/pacing.py` | Page reads: `--wait` gap, backoff on rate limits, streak stops |

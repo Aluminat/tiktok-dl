@@ -1,5 +1,7 @@
 # tiktok-dl
 
+**Checks:** `uv run --with-requirements requirements-dev.txt pytest`, and the same with `ruff check .`. They run in the repo's own `.venv`; install packages only there, never into a global Python.
+
 ## Agent skills
 
 ### Issue tracker
