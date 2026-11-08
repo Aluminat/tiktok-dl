@@ -133,6 +133,14 @@ def finalize(post: Download, out_dir: Path, ffmpeg: Optional[str], opts) -> tupl
     note = ""
 
     if post.items:
+        # All or nothing: with an item missing, nothing goes to out_dir and the work folder is kept, so
+        # the next run downloads only the missing items (the others are valid files there already).
+        missing = [str(i) for i, (item, _) in enumerate(post.items, 1) if not (item.exists() and item.stat().st_size)]
+        if missing:
+            which, n = ", ".join(missing), len(post.items)
+            raise ScrapeError(t(f"item {which} of {n} could not be downloaded (the next run downloads only what "
+                                "is missing)",
+                                f"không tải được mục {which} trên {n} (lần chạy sau chỉ tải lại phần còn thiếu)"))
         numbered = len(post.items) > 1
         notes = set()
         for i, (item, cover) in enumerate(post.items, 1):

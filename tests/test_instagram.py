@@ -113,8 +113,10 @@ def make_opts(tmp_path, **overrides) -> SimpleNamespace:
 
 
 class FakeAria2:
-    """aria2c: records argv and stdin, and "downloads" each URL to its dir/out."""
+    """aria2c: records argv and stdin, and "downloads" each URL to its dir/out. A URL in `broken` comes
+    down as an error page ("html") or cut short, with aria2c's control file left behind ("cut")."""
     calls: list[SimpleNamespace] = []
+    broken: dict[str, str] = {}
 
     def __init__(self, args, stdin=None, stdout=None, stderr=None):
         self.args = args
@@ -132,7 +134,11 @@ class FakeAria2:
                     folder = Path(line[6:])
                 elif line.startswith("  out="):
                     body = b"\x00\x00\x00\x18ftypmp42" if url.endswith(".mp4") else b"\xff\xd8\xff\xe0"
+                    if FakeAria2.broken.get(url) == "html":
+                        body = b"<!DOCTYPE html><html>URL signature expired</html>"
                     (folder / line[6:]).write_bytes(body + b"\x00" * 4096)
+                    if FakeAria2.broken.get(url) == "cut":
+                        (folder / f"{line[6:]}.aria2").write_bytes(b"\x00" * 64)
         return None, None
 
     def terminate(self):
@@ -143,6 +149,7 @@ class FakeAria2:
 def tools(monkeypatch):
     """Fake aria2c (download.subprocess.Popen) and ffmpeg (mux.run_ffmpeg): ffmpeg writes its output."""
     FakeAria2.calls = []
+    FakeAria2.broken = {}
     ffmpeg_calls: list[list[str]] = []
     monkeypatch.setattr(download.subprocess, "Popen", FakeAria2)
 
@@ -717,3 +724,24 @@ def test_mixed_carousel_keeps_the_order_and_tags_its_videos(tmp_path, server, to
     server.answers = [ok(MIXED)]
     assert run(tmp_path, POST) == 0
     assert tools.aria2 != [] and downloaded(tmp_path) == names
+
+
+@pytest.mark.parametrize("how", ["html", "cut"])
+def test_a_missing_item_leaves_the_post_unfinished_and_only_it_is_downloaded_again(tmp_path, server, tools, how):
+    # Every version of the video item (a video falls back to a smaller version, as a reel does).
+    FakeAria2.broken = {"https://cdn.example/b_1080.mp4": how, "https://cdn.example/b_480.mp4": how}
+    server.answers = [ok(MIXED)]
+    assert run(tmp_path, POST) == 1
+    assert statuses(tmp_path) == {PK: "error"}
+    assert downloaded(tmp_path) == []   # nothing half done in the author's folder
+    assert "item 2 of 3" in (out_dir(tmp_path) / "failed.txt").read_text(encoding="utf-8")
+
+    # The next run asks only for the missing item: the others wait in the work folder.
+    FakeAria2.broken = {}
+    tools.aria2.clear()
+    server.answers = [ok(MIXED)]
+    assert run(tmp_path, POST) == 0
+    assert aria2_urls(tools) == ["https://cdn.example/b_1080.mp4"]
+    assert statuses(tmp_path) == {PK: "done"}
+    assert downloaded(tmp_path) == [f"{BASE_NAME}_01.jpg", f"{BASE_NAME}_02.mp4", f"{BASE_NAME}_03.jpg"]
+    assert not (out_dir(tmp_path) / ".parts").exists() and not (out_dir(tmp_path) / "failed.txt").exists()

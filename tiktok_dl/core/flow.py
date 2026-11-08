@@ -170,7 +170,9 @@ def run_profile(site_cls: type[Site], target: str, opts, aria2: Optional[str], f
         progress.mark(plan.id, "done", file=name)
         kind = magenta("[slideshow] ") if plan.is_slide else ""
         extra = f"  {yellow('(' + note + ')')}" if note else ""
-        succeed(f"{kind}{name}  {gray(fmt_bytes(size))}{extra}", size)
+        first, *more = name.split(records.FILE_SEP)   # a post saved item by item lists all its files
+        more_files = gray(t(f" +{len(more)} files", f" +{len(more)} file")) if more else ""
+        succeed(f"{kind}{first}{more_files}  {gray(fmt_bytes(size))}{extra}", size)
 
     # The 3 steps overlap: while aria2c downloads the current batch, the next batch's metadata is
     # read and finished batches are muxed by ffmpeg in the background. Only one batch is read
