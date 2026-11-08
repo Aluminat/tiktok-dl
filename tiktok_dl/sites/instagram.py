@@ -352,8 +352,11 @@ def media(item: dict) -> Media:
     if item.get("media_type") == 8:
         nodes = [node for node in item.get("carousel_media") or [] if isinstance(node, dict)]
         items = [carousel_item(node) for node in nodes]
-        if not items or None in items:
-            missing = ", ".join(str(i) for i, got in enumerate(items, 1) if got is None) or "1"
+        if not items:
+            return Media(unavailable=t("Instagram returned no items for this carousel",
+                                       "Instagram không trả mục nào cho bài nhiều ảnh/video này"))
+        if None in items:
+            missing = ", ".join(str(i) for i, got in enumerate(items, 1) if got is None)
             return Media(unavailable=t(f"Instagram returned no download link for carousel item {missing}",
                                        f"Instagram không trả link tải cho mục {missing} của bài nhiều ảnh/video"))
         return Media(items=items)
