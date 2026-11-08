@@ -38,6 +38,7 @@ class Download:
         self.permanent = False               # True when no re-run can ever download it
         self.incomplete = False              # every video download came out truncated
         self.video: Optional[Path] = None    # the post's video (a video post only)
+        self.audio: Optional[Path] = None    # Media.audio: a photo post's music, or a video's sound stream
         media = post.media()
         self.is_slide = bool(media.images)
         self.url = post.link
@@ -54,16 +55,14 @@ class Download:
                 self.items.append((dest, cover))
             # --slideshow: a slideshow of the photos, for several items that are all photos.
             self.slideshow = bool(opts.slideshow) and len(media.items) > 1 and not any(i.video for i in media.items)
-            self.images, self.audio = [dest for dest, _ in self.items], None   # what mux_slideshow() reads
+            self.images = [dest for dest, _ in self.items]   # what mux_slideshow() reads (no music)
             return
 
         if self.is_slide:
             self.images = [self.work / f"img_{i:02d}.jpg" for i in range(1, len(media.images) + 1)]
             for urls, dest in zip(media.images, self.images):
                 self.tasks.append((urls, dest, {}))
-            self.audio = self.work / "audio.mp3" if media.audio else None
-            if media.audio:
-                self.tasks.append(([media.audio], self.audio, {}))
+            self._add_audio(media.audio, "audio.mp3")   # the music of the slideshow
             return
 
         if not media.video:
@@ -72,10 +71,7 @@ class Download:
             return
         self.video = self.work / "video.mp4"
         self.tasks.append((media.video, self.video, media.sizes))
-        # A separate sound stream (e.g. DASH audio): muxed into the video by finalize().
-        self.audio = self.work / "audio.m4a" if media.audio else None
-        if self.audio:
-            self.tasks.append(([media.audio], self.audio, {}))
+        self._add_audio(media.audio, "audio.m4a")   # a separate sound stream (e.g. DASH audio), muxed in
 
         self.cover = self.work / "cover.img" if media.cover and opts.cover else None
         if self.cover:
@@ -93,17 +89,27 @@ class Download:
             self.subs.append((dest, sub.lang))
             self.tasks.append(([sub.url], dest, {}))
 
+    def _add_audio(self, url: Optional[str], name: str) -> None:
+        """Download Media.audio, if the post has one, to <work>/<name> (self.audio)."""
+        if url:
+            self.audio = self.work / name
+            self.tasks.append(([url], self.audio, {}))
+
     @property
     def tags(self) -> dict:
         """The MP4 tags (computed when muxing)."""
         return self.site.mux_tags(self.post)
 
 
+# A smaller "finished" download is an error answer, not the file (no real video, photo or sound is this small).
+MIN_FILE_BYTES = 64
+
+
 def is_valid_file(dest: Path, expected: int = 0) -> bool:
     """Reject "finished" downloads that are really HTML/JSON error pages, or that are smaller than
     the size the site reports for them (expected, 0 = unknown)."""
     try:
-        if not dest.is_file() or dest.stat().st_size < max(64, expected) or Path(f"{dest}.aria2").exists():
+        if not dest.is_file() or dest.stat().st_size < max(MIN_FILE_BYTES, expected) or Path(f"{dest}.aria2").exists():
             return False
         with open(dest, "rb") as fh:
             head = fh.read(16)

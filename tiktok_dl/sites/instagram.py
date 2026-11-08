@@ -229,14 +229,15 @@ class Instagram(PageReader):
 MEDIA_TYPES = {1: "photo", 2: "video", 8: "carousel"}
 
 
-def _area(version: dict) -> int:
+def _pixels(version: dict) -> int:
+    """A version's size in pixels (width x height; 0 when unknown)."""
     return (to_int(version.get("width")) or 0) * (to_int(version.get("height")) or 0)
 
 
 def _largest(versions) -> list[dict]:
     """Versions with a URL, largest first."""
     versions = [v for v in versions or [] if isinstance(v, dict) and v.get("url")]
-    return sorted(versions, key=_area, reverse=True)
+    return sorted(versions, key=_pixels, reverse=True)
 
 
 def caption_text(item: dict) -> str:
@@ -328,7 +329,7 @@ def photo(node: dict) -> Optional[Item]:
     versions = _largest((node.get("image_versions2") or {}).get("candidates"))
     if not versions:
         return None
-    return Item(uniq(v["url"] for v in versions if _area(v) == _area(versions[0])))
+    return Item(uniq(v["url"] for v in versions if _pixels(v) == _pixels(versions[0])))
 
 
 def carousel_item(node: dict) -> Optional[Item]:
@@ -352,8 +353,11 @@ def media(item: dict) -> Media:
     if item.get("media_type") == 8:
         nodes = [node for node in item.get("carousel_media") or [] if isinstance(node, dict)]
         items = [carousel_item(node) for node in nodes]
-        if not items or None in items:
-            missing = ", ".join(str(i) for i, got in enumerate(items, 1) if got is None) or "1"
+        if not items:
+            return Media(unavailable=t("Instagram returned no items for this carousel",
+                                       "Instagram không trả mục nào cho bài nhiều ảnh/video này"))
+        if None in items:
+            missing = ", ".join(str(i) for i, got in enumerate(items, 1) if got is None)
             return Media(unavailable=t(f"Instagram returned no download link for carousel item {missing}",
                                        f"Instagram không trả link tải cho mục {missing} của bài nhiều ảnh/video"))
         return Media(items=items)
@@ -408,9 +412,9 @@ class InstagramSite(Site):
     name = "instagram"
     label = "Instagram"
     referer = f"{BASE}/"
-    # Unmeasured: slow on purpose, as Meta bans accounts that scrape. The flags override them.
-    # No slideshow unless asked for (--slideshow): the original files are what a carousel is.
-    defaults = {"wait": 3.0, "workers": 1, "connections": 4, "slideshow": False}
+    # Unmeasured, so slow (see Site.defaults). No slideshow unless asked for (--slideshow): the original
+    # files are what a carousel is.
+    defaults = {**Site.defaults, "wait": 3.0, "workers": 1, "slideshow": False}
 
     def __init__(self, profile: Optional[str], session_id: Optional[str], wait: float, proxy: Optional[str]):
         if not session_id:
@@ -430,14 +434,13 @@ class InstagramSite(Site):
         cookie_file = getattr(opts, "cookies", None)
         if getattr(opts, "ig_session_id", None) or not cookie_file:
             return getattr(opts, "ig_session_id", None)
-        jar = cookies.for_domain(cookies.load(cookie_file), "instagram.com")
+        jar = cookies.for_site(cookie_file, "instagram.com")
         return next((c.value for c in jar if c.name == "sessionid" and c.value), None)
 
     @staticmethod
     def parse(target: str) -> tuple[Optional[str], Optional[Entry]]:
         """A post link (reel, video, photo or carousel) -> (the username in the link or None, the post).
-        Profiles fail: they come
-        in v2. Makes no request."""
+        A profile link fails: profiles come in v2. Makes no request."""
         text = target.strip()
         m = POST_LINK_RE.match(text)
         if not m:

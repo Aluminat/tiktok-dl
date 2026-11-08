@@ -804,3 +804,10 @@ def test_a_carousel_item_without_a_link_fails_the_post_for_now(tmp_path, server,
     assert tools.aria2 == [] and downloaded(tmp_path) == []
     assert statuses(tmp_path) == {PK: "error"}   # not "skipped": a later run may get the link
     assert "no download link for carousel item 2" in (out_dir(tmp_path) / "failed.txt").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("fields", [{"carousel_media": []}, {}], ids=["empty", "missing"])
+def test_a_carousel_without_items_says_so(fields):
+    got = instagram.media(post_item(8, **fields))
+    assert got.items == [] and not got.permanent
+    assert got.unavailable == "Instagram returned no items for this carousel"

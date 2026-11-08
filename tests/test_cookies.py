@@ -46,6 +46,13 @@ def test_cookies_of_one_site(cookie_file):
     assert [c.name for c in cookies.for_domain(jar, "instagram.com")] == ["sessionid"]
 
 
+def test_a_sites_cookies_straight_from_the_file(cookie_file):
+    assert [c.name for c in cookies.for_site(str(cookie_file), "facebook.com")] == ["c_user", "xs", "locale"]
+    assert [(c.name, c.value) for c in cookies.for_site(str(cookie_file), "instagram.com")] == [
+        ("sessionid", "ig-value")]
+    assert cookies.for_site(str(cookie_file), "tiktok.com") == []
+
+
 def test_file_without_header_and_with_windows_line_ends(tmp_path):
     path = tmp_path / "c.txt"
     path.write_bytes(b".facebook.com\tTRUE\t/\tTRUE\t1893456000\tc_user\t1\r\n")

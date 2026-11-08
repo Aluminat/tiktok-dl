@@ -256,7 +256,8 @@ def _usable(info: dict) -> list[dict]:
             and not str(f.get("protocol") or "").startswith(("m3u8", "http_dash_segments", "f4m", "rtmp"))]
 
 
-def _area(f: dict) -> tuple:
+def _format_rank(f: dict) -> tuple:
+    """How good a video format is, as a sort key: its pixels, then its height, bitrate and quality."""
     return ((to_int(f.get("width")) or 0) * (to_int(f.get("height")) or 0), to_int(f.get("height")) or 0,
             f.get("tbr") or 0, f.get("quality") or 0)
 
@@ -268,10 +269,10 @@ def streams(info: dict) -> tuple[list[dict], Optional[dict]]:
     video_only = [f for f in usable if f.get("vcodec") not in (None, "none") and f.get("acodec") == "none"]
     audio_only = [f for f in usable if f.get("vcodec") == "none" and f.get("acodec") not in (None, "none")]
     if video_only and audio_only:
-        return (sorted(video_only, key=_area, reverse=True),
+        return (sorted(video_only, key=_format_rank, reverse=True),
                 max(audio_only, key=lambda f: (f.get("abr") or f.get("tbr") or 0)))
     muxed = [f for f in usable if f.get("vcodec") != "none" and f.get("acodec") != "none"]
-    return sorted(muxed, key=_area, reverse=True), None
+    return sorted(muxed, key=_format_rank, reverse=True), None
 
 
 def media(info: dict) -> Media:
@@ -396,9 +397,7 @@ class FacebookSite(Site):
     name = "facebook"
     label = "Facebook"
     referer = f"{BASE}/"
-    # Unmeasured: slow on purpose, as Meta bans accounts that scrape. The flags override them. The other
-    # defaults (e.g. slideshow, unused: reels have no photos) are the base ones.
-    defaults = {**Site.defaults, "wait": 2.0, "workers": 1, "connections": 4}
+    defaults = {**Site.defaults, "wait": 2.0, "workers": 1}   # unmeasured, so slow (see Site.defaults)
 
     def __init__(self, profile: Optional[str], cookie_file: Optional[str], wait: float, proxy: Optional[str]):
         self.profile = profile
@@ -409,7 +408,7 @@ class FacebookSite(Site):
     def _cookies(cookie_file: Optional[str]) -> list:
         if not cookie_file:
             return []
-        jar = cookies.for_domain(cookies.load(cookie_file), "facebook.com")
+        jar = cookies.for_site(cookie_file, "facebook.com")
         if not jar:
             raise ScrapeError(t(f"the --cookies file has no facebook.com cookies: {cookie_file}. Export it from a "
                                 "browser where you are logged in to Facebook.",

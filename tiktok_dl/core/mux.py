@@ -8,6 +8,7 @@ import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
+from . import download
 from .console import t
 from .errors import ScrapeError
 from .records import FILE_SEP
@@ -64,7 +65,7 @@ def mux_video(ffmpeg: str, post: Download, out: Path,
     subs = [(p, lang) for p, lang in subs if p.exists() and p.stat().st_size]
     cover = cover if cover and cover.exists() and cover.stat().st_size else None
     # A separate sound stream (not for an item); finalize() checked that it downloaded.
-    audio = None if item else getattr(post, "audio", None)
+    audio = None if item else post.audio
 
     def build(with_cover: bool, with_subs: bool) -> list[str]:
         cmd = [ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-i", str(video)]
@@ -211,8 +212,8 @@ def finalize(post: Download, out_dir: Path, ffmpeg: Optional[str], opts) -> tupl
                                     f"tải video không trọn vẹn: file nhỏ hơn dung lượng {site} báo "
                                     "(đã thử hết các link tải)"))
             raise ScrapeError(t("video could not be downloaded", "không tải được video"))
-        audio = getattr(post, "audio", None)
-        if audio and (not audio.exists() or audio.stat().st_size < 64):
+        audio = post.audio
+        if audio and (not audio.exists() or audio.stat().st_size < download.MIN_FILE_BYTES):
             raise ScrapeError(t("audio could not be downloaded", "không tải được âm thanh"))
         main = out_dir / f"{post.base}.mp4"
         if ffmpeg:

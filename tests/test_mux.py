@@ -40,7 +40,7 @@ def make_post(tmp_path, monkeypatch):
             sub = tmp_path / "sub_0.vtt"
             sub.write_text("WEBVTT\n", encoding="utf-8")
             subs.append((sub, "en"))
-        return SimpleNamespace(tags={"title": "x"}, video=video, cover=cover, subs=subs)
+        return SimpleNamespace(tags={"title": "x"}, video=video, cover=cover, subs=subs, audio=None)
 
     return make
 
