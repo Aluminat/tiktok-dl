@@ -55,11 +55,16 @@ def mux_video(ffmpeg: str, post: Download, out: Path) -> str:
     tags = tag_args(post.tags)
     subs = [(p, lang) for p, lang in post.subs if p.exists() and p.stat().st_size]
     cover = post.cover if post.cover and post.cover.exists() and post.cover.stat().st_size else None
+    audio = getattr(post, "audio", None)   # a separate sound stream; finalize() checked that it downloaded
 
     def build(with_cover: bool, with_subs: bool) -> list[str]:
         cmd = [ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-i", str(post.video)]
-        maps = ["-map", "0:v:0", "-map", "0:a?"]
-        n = 1
+        if audio:   # never dropped by the fallback attempts: a video without its sound is not a result
+            cmd += ["-i", str(audio)]
+            maps = ["-map", "0:v:0", "-map", "1:a:0"]
+        else:
+            maps = ["-map", "0:v:0", "-map", "0:a?"]
+        n = 2 if audio else 1   # the next input's number
         use_subs = subs if with_subs else []
         for p, _ in use_subs:
             cmd += ["-i", str(p)]
@@ -156,15 +161,25 @@ def finalize(post: Download, out_dir: Path, ffmpeg: Optional[str], opts) -> tupl
                                     f"tải video không trọn vẹn: file nhỏ hơn dung lượng {site} báo "
                                     "(đã thử hết các link tải)"))
             raise ScrapeError(t("video could not be downloaded", "không tải được video"))
+        audio = getattr(post, "audio", None)
+        if audio and (not audio.exists() or audio.stat().st_size < 64):
+            raise ScrapeError(t("audio could not be downloaded", "không tải được âm thanh"))
         main = out_dir / f"{post.base}.mp4"
         if ffmpeg:
             tmp = post.work / "muxed.mp4"
             note = mux_video(ffmpeg, post, tmp)
             os.replace(tmp, main)
+            produced.append(main)
+        elif audio:   # nothing can join them: keep both, so the sound is not lost
+            shutil.copyfile(post.video, main)
+            shutil.copyfile(audio, out_dir / f"{post.base}.m4a")
+            produced += [main, out_dir / f"{post.base}.m4a"]
+            note = t("no ffmpeg: video and audio saved as separate files, no metadata added",
+                     "không có ffmpeg: video và âm thanh được lưu thành 2 file riêng, chưa gắn metadata")
         else:
             shutil.copyfile(post.video, main)
             note = t("no ffmpeg, metadata not added", "không có ffmpeg, chưa gắn metadata")
-        produced.append(main)
+            produced.append(main)
 
     for p in produced:
         os.utime(p, (when, when))

@@ -64,7 +64,7 @@ class Media:
     cover: Optional[str] = None
     subtitles: list[Subtitle] = field(default_factory=list)
     images: list[list[str]] = field(default_factory=list)  # photo posts: mirrors per image
-    audio: Optional[str] = None
+    audio: Optional[str] = None   # photo posts: the music; video posts: a separate sound stream to mux in
     unavailable: Optional[str] = None   # why a video post has no download link (message)
     permanent: bool = False             # ... and no re-run can fix it
 

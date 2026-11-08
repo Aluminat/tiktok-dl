@@ -22,8 +22,9 @@ def base_name(post: Post) -> str:
 
 
 class Download:
-    """Which files one post needs and where they go: video, cover and subtitles, or the images and
-    music of a photo post. The URLs come from the site (Post.media())."""
+    """Which files one post needs and where they go: video (and its separate sound stream, if any),
+    cover and subtitles, or the images and music of a photo post. The URLs come from the site
+    (Post.media())."""
 
     def __init__(self, post: Post, work: Path, opts, site: Optional[Site] = None):
         self.post = post
@@ -55,6 +56,10 @@ class Download:
             return
         self.video = self.work / "video.mp4"
         self.tasks.append((media.video, self.video, media.sizes))
+        # A separate sound stream (e.g. DASH audio): muxed into the video by finalize().
+        self.audio = self.work / "audio.m4a" if media.audio else None
+        if self.audio:
+            self.tasks.append(([media.audio], self.audio, {}))
 
         self.cover = self.work / "cover.img" if media.cover and opts.cover else None
         if self.cover:
