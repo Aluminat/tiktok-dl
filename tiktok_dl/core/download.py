@@ -51,6 +51,9 @@ class Download:
                 if cover:
                     self.tasks.append(([item.cover], cover, {}))
                 self.items.append((dest, cover))
+            # --slideshow: a slideshow of the photos, for several items that are all photos.
+            self.slideshow = bool(opts.slideshow) and len(media.items) > 1 and not any(i.video for i in media.items)
+            self.images, self.audio = [dest for dest, _ in self.items], None   # what mux_slideshow() reads
             return
 
         if self.is_slide:

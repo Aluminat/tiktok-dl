@@ -41,8 +41,8 @@ from .stop import STOP, wait_result
 
 
 def run_settings(site_cls: type[Site], opts):
-    """A copy of opts for one run of this site: --wait, --workers and --connections the user left out
-    (None) take the site's defaults (Site.defaults), then are kept in range. A copy, because one opts
+    """A copy of opts for one run of this site: --wait, --workers, --connections and --slideshow the user
+    left out (None) take the site's defaults (Site.defaults), then are kept in range. A copy, because one opts
     serves every target of the command line, and they may be on different sites."""
     run = copy.copy(opts)
     for key, value in site_cls.defaults.items():

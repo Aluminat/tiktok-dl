@@ -135,8 +135,9 @@ class Site(ABC):
     label: str = ""            # the site's name in messages, e.g. "TikTok"
     referer: str = ""          # aria2c --referer for downloads
     client: PageReader         # page reads; also the requests session (`client.s`) and cookies for downloads
-    # --wait, --workers and --connections when the user does not give them (core.flow.run_settings).
-    defaults: dict = {"wait": 0.3, "workers": 8, "connections": 4}
+    # --wait, --workers, --connections and --slideshow / --no-slideshow when the user does not give them
+    # (core.flow.run_settings).
+    defaults: dict = {"wait": 0.3, "workers": 8, "connections": 4, "slideshow": True}
 
     @classmethod
     def session(cls, opts) -> Optional[str]:

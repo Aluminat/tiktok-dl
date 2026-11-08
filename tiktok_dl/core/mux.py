@@ -125,6 +125,43 @@ def mux_slideshow(ffmpeg: str, post: Download, out: Path, seconds: float) -> Non
         raise ScrapeError(t(f"ffmpeg could not build the slideshow: {err}", f"ffmpeg không dựng được slideshow: {err}"))
 
 
+def save_items(post: Download, out_dir: Path, ffmpeg: Optional[str], opts) -> tuple[list[Path], str]:
+    """Put a post saved item by item (Media.items) into out_dir: <base>.<ext> for one item, <base>_NN.<ext>
+    for several, video items muxed with the post's tags; or, with --slideshow and only photos, a
+    <base>.mp4 slideshow (and the photos too with --keep-images). Returns (files, note).
+
+    All or nothing: with an item missing, nothing goes to out_dir and the work folder is kept, so the
+    next run downloads only the missing items (the others are valid files there already)."""
+    missing = [str(i) for i, (item, _) in enumerate(post.items, 1) if not (item.exists() and item.stat().st_size)]
+    if missing:
+        which, n = ", ".join(missing), len(post.items)
+        raise ScrapeError(t(f"item {which} of {n} could not be downloaded (the next run downloads only what "
+                            "is missing)",
+                            f"không tải được mục {which} trên {n} (lần chạy sau chỉ tải lại phần còn thiếu)"))
+    produced: list[Path] = []
+    notes = set()
+    if post.slideshow and ffmpeg:
+        tmp = post.work / "slideshow.mp4"
+        mux_slideshow(ffmpeg, post, tmp, opts.slide_seconds)
+        produced.append(out_dir / f"{post.base}.mp4")
+        os.replace(tmp, produced[0])
+        if not opts.keep_images:
+            return produced, ""
+    numbered = len(post.items) > 1
+    for i, (item, cover) in enumerate(post.items, 1):
+        dest = out_dir / (f"{post.base}_{i:02d}{item.suffix}" if numbered else f"{post.base}{item.suffix}")
+        if item.suffix == ".mp4" and ffmpeg:
+            tmp = post.work / "muxed.mp4"
+            notes.add(mux_video(ffmpeg, post, tmp, (item, cover)))
+            os.replace(tmp, dest)
+        else:
+            shutil.copyfile(item, dest)
+            if item.suffix == ".mp4":
+                notes.add(t("no ffmpeg, metadata not added", "không có ffmpeg, chưa gắn metadata"))
+        produced.append(dest)
+    return produced, ", ".join(sorted(n for n in notes if n))
+
+
 def finalize(post: Download, out_dir: Path, ffmpeg: Optional[str], opts) -> tuple[str, int, str]:
     """Mux/move files of one post into out_dir. Returns (main file name, total bytes, note); for a post
     saved item by item, the names of all its files joined with FILE_SEP."""
@@ -133,28 +170,7 @@ def finalize(post: Download, out_dir: Path, ffmpeg: Optional[str], opts) -> tupl
     note = ""
 
     if post.items:
-        # All or nothing: with an item missing, nothing goes to out_dir and the work folder is kept, so
-        # the next run downloads only the missing items (the others are valid files there already).
-        missing = [str(i) for i, (item, _) in enumerate(post.items, 1) if not (item.exists() and item.stat().st_size)]
-        if missing:
-            which, n = ", ".join(missing), len(post.items)
-            raise ScrapeError(t(f"item {which} of {n} could not be downloaded (the next run downloads only what "
-                                "is missing)",
-                                f"không tải được mục {which} trên {n} (lần chạy sau chỉ tải lại phần còn thiếu)"))
-        numbered = len(post.items) > 1
-        notes = set()
-        for i, (item, cover) in enumerate(post.items, 1):
-            dest = out_dir / (f"{post.base}_{i:02d}{item.suffix}" if numbered else f"{post.base}{item.suffix}")
-            if item.suffix == ".mp4" and ffmpeg:
-                tmp = post.work / "muxed.mp4"
-                notes.add(mux_video(ffmpeg, post, tmp, (item, cover)))
-                os.replace(tmp, dest)
-            else:
-                shutil.copyfile(item, dest)
-                if item.suffix == ".mp4":
-                    notes.add(t("no ffmpeg, metadata not added", "không có ffmpeg, chưa gắn metadata"))
-            produced.append(dest)
-        note = ", ".join(sorted(n for n in notes if n))
+        produced, note = save_items(post, out_dir, ffmpeg, opts)
         main = produced[0]
     elif post.is_slide:
         images = [p for p in post.images if p.exists() and p.stat().st_size]

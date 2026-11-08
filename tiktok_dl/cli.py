@@ -82,9 +82,13 @@ def main() -> None:
                           "(mặc định: original)"))
     p.add_argument("--no-cover", dest="cover", action="store_false",
                    help=t("do not embed the cover image", "không gắn ảnh bìa vào MP4"))
-    p.add_argument("--no-slideshow", dest="slideshow", action="store_false",
-                   help=t("photo posts: save images + music only, no slideshow video",
-                          "bài ảnh: không dựng video slideshow, chỉ lưu ảnh + nhạc"))
+    # No argparse default either: on for TikTok photo posts, off for Instagram carousels (Site.defaults).
+    p.add_argument("--slideshow", dest="slideshow", action="store_true", default=None,
+                   help=t("Instagram: turn an all-photo carousel into an MP4 slideshow (TikTok does by default)",
+                          "Instagram: dựng video slideshow MP4 cho bài nhiều ảnh (TikTok mặc định đã dựng)"))
+    p.add_argument("--no-slideshow", dest="slideshow", action="store_false", default=None,
+                   help=t("TikTok photo posts: save images + music only, no slideshow video",
+                          "bài ảnh TikTok: không dựng video slideshow, chỉ lưu ảnh + nhạc"))
     p.add_argument("--keep-images", action="store_true",
                    help=t("photo posts: also save each JPG + MP3 next to the slideshow",
                           "bài ảnh: lưu thêm từng ảnh JPG + MP3 cạnh slideshow"))

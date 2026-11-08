@@ -106,7 +106,7 @@ def make_opts(tmp_path, **overrides) -> SimpleNamespace:
     opts = SimpleNamespace(output=str(tmp_path), session_id=None, ig_session_id=SECRET, wait=0, proxy=None,
                            limit=None, metadata_only=False, workers=None, batch=10, mux_jobs=1, keep_parts=False,
                            jobs=1, connections=None, cover=True, subs="original", retry_all=False,
-                           slideshow=True, keep_images=False, slide_seconds=3.0)
+                           slideshow=None, keep_images=False, slide_seconds=3.0)
     for key, value in overrides.items():
         setattr(opts, key, value)
     return opts
@@ -573,6 +573,24 @@ def test_the_run_uses_the_instagram_defaults(tmp_path, server, monkeypatch):
     assert seen == [3.0]
 
 
+def test_slideshow_is_on_for_tiktok_and_off_for_instagram():
+    unset = SimpleNamespace(wait=None, workers=None, connections=None, slideshow=None)
+    assert flow.run_settings(tiktok.TikTokSite, unset).slideshow is True
+    assert flow.run_settings(instagram.InstagramSite, unset).slideshow is False
+    for flag in (True, False):
+        given = SimpleNamespace(wait=None, workers=None, connections=None, slideshow=flag)
+        assert flow.run_settings(tiktok.TikTokSite, given).slideshow is flag
+        assert flow.run_settings(instagram.InstagramSite, given).slideshow is flag
+
+
+@pytest.mark.parametrize(("flags", "slideshow"), [((), None), (("--slideshow",), True), (("--no-slideshow",), False)])
+def test_cli_leaves_the_slideshow_to_the_site(run_main, monkeypatch, flags, slideshow):
+    got = []
+    monkeypatch.setattr(cli, "scrape_profile", lambda target, opts, *a: got.append(opts) or 0)
+    assert run_main("@some.user", *flags) == 0
+    assert got[0].slideshow is slideshow
+
+
 def test_cli_leaves_the_pacing_flags_unset(run_main, monkeypatch):
     got = []
     monkeypatch.setattr(cli, "scrape_profile", lambda target, opts, *a: got.append(opts) or 0)
@@ -690,6 +708,7 @@ def test_all_photo_carousel_is_saved_item_by_item(tmp_path, server, tools):
     assert downloaded(tmp_path) == names
     assert aria2_urls(tools) == ["https://cdn.example/a_1440.jpg", "https://cdn.example/b_1440.jpg",
                                  "https://cdn.example/c_1440.jpg"]
+    assert tools.ffmpeg == []   # originals: no slideshow without --slideshow
     row = csv_rows(tmp_path)[0]
     assert (row["type"], row["file"]) == ("carousel", " | ".join(names))
 
@@ -745,3 +764,33 @@ def test_a_missing_item_leaves_the_post_unfinished_and_only_it_is_downloaded_aga
     assert statuses(tmp_path) == {PK: "done"}
     assert downloaded(tmp_path) == [f"{BASE_NAME}_01.jpg", f"{BASE_NAME}_02.mp4", f"{BASE_NAME}_03.jpg"]
     assert not (out_dir(tmp_path) / ".parts").exists() and not (out_dir(tmp_path) / "failed.txt").exists()
+
+
+def slideshow_runs(tools) -> list[list[str]]:
+    return [cmd for cmd in tools.ffmpeg if "-loop" in cmd]
+
+
+def test_slideshow_flag_builds_an_mp4_of_an_all_photo_carousel(tmp_path, server, tools):
+    server.answers = [ok(ALL_PHOTOS)]
+    assert run(tmp_path, POST, slideshow=True) == 0
+    [cmd] = slideshow_runs(tools)
+    assert sum(arg.endswith(".jpg") for arg in cmd) == 3 and "genre=Instagram" in cmd
+    assert downloaded(tmp_path) == [f"{BASE_NAME}.mp4"]
+    assert csv_rows(tmp_path)[0]["file"] == f"{BASE_NAME}.mp4"
+
+
+def test_slideshow_with_keep_images_keeps_the_originals_too(tmp_path, server, tools):
+    server.answers = [ok(ALL_PHOTOS)]
+    assert run(tmp_path, POST, slideshow=True, keep_images=True) == 0
+    names = [f"{BASE_NAME}.mp4", f"{BASE_NAME}_01.jpg", f"{BASE_NAME}_02.jpg", f"{BASE_NAME}_03.jpg"]
+    assert downloaded(tmp_path) == names
+    assert csv_rows(tmp_path)[0]["file"] == " | ".join(names)
+
+
+@pytest.mark.parametrize("item", [MIXED, SINGLE_PHOTO], ids=["mixed carousel", "single photo"])
+def test_slideshow_flag_leaves_other_posts_as_originals(tmp_path, server, tools, item):
+    server.answers = [ok(item)]
+    assert run(tmp_path, POST, slideshow=True) == 0
+    assert slideshow_runs(tools) == []
+    assert f"{BASE_NAME}.mp4" not in downloaded(tmp_path)
+    assert len(downloaded(tmp_path)) == (3 if item is MIXED else 1)

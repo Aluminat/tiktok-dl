@@ -406,7 +406,8 @@ class InstagramSite(Site):
     label = "Instagram"
     referer = f"{BASE}/"
     # Unmeasured: slow on purpose, as Meta bans accounts that scrape. The flags override them.
-    defaults = {"wait": 3.0, "workers": 1, "connections": 4}
+    # No slideshow unless asked for (--slideshow): the original files are what a carousel is.
+    defaults = {"wait": 3.0, "workers": 1, "connections": 4, "slideshow": False}
 
     def __init__(self, profile: Optional[str], session_id: Optional[str], wait: float, proxy: Optional[str]):
         if not session_id:
