@@ -794,3 +794,13 @@ def test_slideshow_flag_leaves_other_posts_as_originals(tmp_path, server, tools,
     assert slideshow_runs(tools) == []
     assert f"{BASE_NAME}.mp4" not in downloaded(tmp_path)
     assert len(downloaded(tmp_path)) == (3 if item is MIXED else 1)
+
+
+def test_a_carousel_item_without_a_link_fails_the_post_for_now(tmp_path, server, tools):
+    broken = copy.deepcopy(MIXED)
+    broken["carousel_media"][1].pop("video_versions")
+    server.answers = [ok(broken)]
+    assert run(tmp_path, POST) == 1
+    assert tools.aria2 == [] and downloaded(tmp_path) == []
+    assert statuses(tmp_path) == {PK: "error"}   # not "skipped": a later run may get the link
+    assert "no download link for carousel item 2" in (out_dir(tmp_path) / "failed.txt").read_text(encoding="utf-8")
