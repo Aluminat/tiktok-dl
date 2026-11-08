@@ -656,13 +656,64 @@ def csv_rows(tmp_path) -> list[dict]:
         return list(csv.DictReader(fh))
 
 
+def aria2_urls(tools) -> list[str]:
+    """Every URL handed to aria2c, in order."""
+    return [line for call in tools.aria2 for line in call.input.splitlines() if not line.startswith("  ")]
+
+
 def test_single_photo_is_saved_at_the_largest_size(tmp_path, server, tools):
     server.answers = [ok(SINGLE_PHOTO)]
     assert run(tmp_path, POST) == 0
     assert downloaded(tmp_path) == [f"{BASE_NAME}.jpg"]
     # Only the largest size is asked for: a smaller one is never a fallback.
-    urls = [line for call in tools.aria2 for line in call.input.splitlines() if not line.startswith("  ")]
-    assert urls == ["https://cdn.example/single_1440.jpg"]
+    assert aria2_urls(tools) == ["https://cdn.example/single_1440.jpg"]
     assert statuses(tmp_path) == {PK: "done"}
     row = csv_rows(tmp_path)[0]
     assert (row["type"], row["file"], row["url"]) == ("photo", f"{BASE_NAME}.jpg", POST)
+
+
+ALL_PHOTOS = post_item(8, carousel_media_count=3, carousel_media=[photo("a", 11), photo("b", 12), photo("c", 13)])
+MIXED = post_item(8, carousel_media_count=3, carousel_media=[photo("a", 11), video("b", 12), photo("c", 13)])
+
+
+def test_all_photo_carousel_is_saved_item_by_item(tmp_path, server, tools):
+    server.answers = [ok(ALL_PHOTOS)]
+    assert run(tmp_path, POST) == 0
+    names = [f"{BASE_NAME}_01.jpg", f"{BASE_NAME}_02.jpg", f"{BASE_NAME}_03.jpg"]
+    assert downloaded(tmp_path) == names
+    assert aria2_urls(tools) == ["https://cdn.example/a_1440.jpg", "https://cdn.example/b_1440.jpg",
+                                 "https://cdn.example/c_1440.jpg"]
+    row = csv_rows(tmp_path)[0]
+    assert (row["type"], row["file"]) == ("carousel", " | ".join(names))
+
+
+def test_mixed_carousel_keeps_the_order_and_tags_its_videos(tmp_path, server, tools):
+    server.answers = [ok(MIXED)]
+    assert run(tmp_path, POST) == 0
+    names = [f"{BASE_NAME}_01.jpg", f"{BASE_NAME}_02.mp4", f"{BASE_NAME}_03.jpg"]
+    assert downloaded(tmp_path) == names
+    # The video item: its largest version and its cover, in the item's place.
+    assert aria2_urls(tools) == ["https://cdn.example/a_1440.jpg", "https://cdn.example/b_1080.mp4",
+                                 "https://cdn.example/b_cover.jpg", "https://cdn.example/c_1440.jpg"]
+    # The video is muxed with the post's tags and its cover, like a reel.
+    [cmd] = tools.ffmpeg
+    assert any(arg.endswith("item_02.mp4") for arg in cmd)
+    assert any(arg.endswith("item_02_cover.img") for arg in cmd)
+    for tag in ("album=Instagram @some.user", "genre=Instagram", f"episode_id={CODE}", "date=2023-11-14"):
+        assert tag in cmd
+    assert (out_dir(tmp_path) / names[1]).read_bytes()[4:8] == b"ftyp"
+    assert statuses(tmp_path) == {PK: "done"}
+    row = csv_rows(tmp_path)[0]
+    assert (row["type"], row["file"]) == ("carousel", " | ".join(names))
+
+    # Every file on disk: a re-run skips the post.
+    tools.aria2.clear()
+    server.answers = [ok(MIXED)]
+    assert run(tmp_path, POST) == 0
+    assert tools.aria2 == []
+
+    # One file gone: the post is not done any more and is downloaded again.
+    (out_dir(tmp_path) / names[2]).unlink()
+    server.answers = [ok(MIXED)]
+    assert run(tmp_path, POST) == 0
+    assert tools.aria2 != [] and downloaded(tmp_path) == names

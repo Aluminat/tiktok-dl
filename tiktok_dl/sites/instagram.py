@@ -328,6 +328,15 @@ def photo(node: dict) -> Optional[Item]:
     return Item(uniq(v["url"] for v in versions if _area(v) == _area(versions[0])))
 
 
+def carousel_item(node: dict) -> Optional[Item]:
+    """One item of a carousel: a photo, or a video (its versions, largest first, and its cover)."""
+    if node.get("media_type") != 2:
+        return photo(node)
+    videos = uniq(v["url"] for v in _largest(node.get("video_versions")))
+    cover = photo(node)
+    return Item(videos, video=True, cover=cover.urls[0] if cover else None) if videos else None
+
+
 def media(item: dict) -> Media:
     """What an Instagram post offers for download: the video versions (largest first) and the cover, or
     the photo."""
@@ -337,6 +346,14 @@ def media(item: dict) -> Media:
             return Media(unavailable=t("Instagram returned no download link for this photo",
                                        "Instagram không trả link tải cho ảnh này"))
         return Media(items=[single])
+    if item.get("media_type") == 8:
+        nodes = [node for node in item.get("carousel_media") or [] if isinstance(node, dict)]
+        items = [carousel_item(node) for node in nodes]
+        if not items or None in items:
+            missing = ", ".join(str(i) for i, got in enumerate(items, 1) if got is None) or "1"
+            return Media(unavailable=t(f"Instagram returned no download link for carousel item {missing}",
+                                       f"Instagram không trả link tải cho mục {missing} của bài nhiều ảnh/video"))
+        return Media(items=items)
     videos = uniq(v["url"] for v in _largest(item.get("video_versions")))
     if not videos:
         return Media(unavailable=t("Instagram returned no download link for this video",
