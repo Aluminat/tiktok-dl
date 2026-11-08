@@ -95,3 +95,15 @@ def test_guards_see_the_whole_package():
     names = {p.relative_to(PACKAGE).as_posix() for p in PACKAGE.rglob("*.py")}
     assert {"cli.py", "core/site.py", "core/flow.py", "sites/tiktok.py",
             "sites/instagram.py", "sites/facebook.py"} <= names
+
+
+# Package entry points with nothing to describe in CONTRIBUTING.md's "Where things are" table.
+UNLISTED = {"__init__.py", "__main__.py", "core/__init__.py"}
+
+
+def test_contributing_lists_every_module():
+    """A new module gets a row in CONTRIBUTING.md's "Where things are" table, so the map stays whole."""
+    table = (LAUNCHER.parent / "CONTRIBUTING.md").read_text(encoding="utf-8")
+    modules = {p.relative_to(PACKAGE).as_posix() for p in PACKAGE.rglob("*.py")} - UNLISTED
+    missing = sorted(m for m in modules if f"| `{m}` |" not in table)
+    assert not missing, f"add a row to CONTRIBUTING.md's 'Where things are' table for: {missing}"

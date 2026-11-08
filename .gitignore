@@ -9,3 +9,4 @@ ffmpeg.exe
 dist/
 build/
 *.egg-info/
+uv.lock
