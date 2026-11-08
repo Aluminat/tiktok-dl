@@ -140,7 +140,9 @@ class Site(ABC):
     referer: str = ""          # aria2c --referer for downloads
     client: PageReader         # page reads; also the requests session (`client.s`) and cookies for downloads
     # --wait, --workers, --connections and --slideshow / --no-slideshow when the user does not give them
-    # (core.flow.run_settings).
+    # (core.flow.run_settings). A site gives only the keys it changes: {**Site.defaults, "wait": ...}.
+    # A site whose limits are unmeasured is slow on purpose (one worker, seconds between reads), as its
+    # owner may ban accounts that scrape; the flags override that.
     defaults: dict = {"wait": 0.3, "workers": 8, "connections": 4, "slideshow": True}
 
     @classmethod
